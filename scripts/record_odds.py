@@ -1,4 +1,4 @@
-"""Save one odds snapshot (every upcoming NBA game, US books) as JSON under <out>/odds/<ET date>/.
+"""Save one odds snapshot (every upcoming NBA game, Massachusetts books) as JSON under <out>/odds/<ET date>/.
 
 Run by the private repo's scheduled workflow. Without ODDS_API_KEY it does nothing, so the
 schedule can exist before the key does.
@@ -18,7 +18,8 @@ from fof.ingest import odds
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--regions", default=os.environ.get("ODDS_REGIONS", "us"))
+    ap.add_argument("--bookmakers", default=odds.MA_BOOKS)
+    ap.add_argument("--regions", default=None, help="use whole regions instead of the named books")
     ap.add_argument("--markets", default="h2h,spreads")
     args = ap.parse_args()
 
@@ -27,13 +28,15 @@ def main() -> int:
         print("ODDS_API_KEY not set; nothing recorded")
         return 0
     taken = now_et()
-    games, quota = odds.snapshot(key, args.regions, args.markets)
+    games, quota = odds.snapshot(key, args.bookmakers, args.markets, args.regions)
     books = sorted({b["key"] for g in games for b in g.get("bookmakers", [])})
-    path = args.out / "odds" / taken.date().isoformat() / f"{taken:%H%M%S}_{args.regions.replace(',', '+')}.json"
+    tag = args.regions.replace(",", "+") if args.regions else "ma"
+    path = args.out / "odds" / taken.date().isoformat() / f"{taken:%H%M%S}_{tag}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"taken_at": taken.isoformat(), "regions": args.regions, "markets": args.markets,
-                               "quota": quota, "games": games}, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps({"taken_at": taken.isoformat(), "bookmakers": args.bookmakers, "regions": args.regions,
+                               "markets": args.markets, "quota": quota, "games": games}, ensure_ascii=False),
+                   encoding="utf-8")
     tmp.replace(path)
     print(f"{len(games)} games, books {books}, credits remaining {quota.get('remaining')} -> {path}")
     return 0
