@@ -1,0 +1,23 @@
+# local data: raw NBA responses, odds snapshots and the DuckDB file never go into this public repo
+data/
+*.duckdb
+*.duckdb.wal
+logs/
+
+# personal docs live in the private repo
+DESIGN.md
+private/
+
+# secrets
+.env
+*.key
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# packaging
+*.egg-info/
+build/

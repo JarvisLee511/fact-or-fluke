@@ -1,0 +1,20 @@
+[project]
+name = "fact-or-fluke"
+version = "0.0.1"
+description = "Daily NBA fun facts ranked by evidence, plus game predictions benchmarked against the betting market."
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
