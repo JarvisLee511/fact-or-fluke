@@ -1,4 +1,6 @@
 duckdb
+pandas
 pdfplumber
+pytz
 tzdata
 pytest

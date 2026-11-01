@@ -1,5 +1,6 @@
 # local data: raw NBA responses, odds snapshots and the DuckDB file never go into this public repo
-data/
+# (root only: site/data holds the derived JSON the site publishes)
+/data/
 *.duckdb
 *.duckdb.wal
 logs/
@@ -21,3 +22,9 @@ __pycache__/
 # packaging
 *.egg-info/
 build/
+
+# site data is published by the daily run, not by hand
+site/data/*.tmp
+
+# browser-test scratch
+.playwright-mcp/
