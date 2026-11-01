@@ -53,7 +53,8 @@ def box_rows(payload: dict) -> list[dict]:
             s = p["statistics"]
             rows.append(dict(
                 game_id=b["gameId"], player_id=p["personId"], team_id=t["teamId"], team_code=t["teamTricode"],
-                name=f'{p["firstName"]} {p["familyName"]}'.strip(), position=p.get("position") or "",
+                name=f'{p["firstName"]} {p["familyName"]}'.strip(), family_name=p["familyName"],
+                position=p.get("position") or "",
                 starter=bool(p.get("position")), dnp=not s.get("minutes"), seconds=seconds(s.get("minutes")),
                 pts=s["points"], fgm=s["fieldGoalsMade"], fga=s["fieldGoalsAttempted"], fg3m=s["threePointersMade"],
                 fg3a=s["threePointersAttempted"], ftm=s["freeThrowsMade"], fta=s["freeThrowsAttempted"],

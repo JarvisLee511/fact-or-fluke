@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS odds (
     taken_at TIMESTAMPTZ, event_id VARCHAR, commence_utc TIMESTAMP, home VARCHAR, away VARCHAR, book VARCHAR,
     market VARCHAR, outcome VARCHAR, price DOUBLE, point DOUBLE,
     PRIMARY KEY (taken_at, event_id, book, market, outcome));
+ALTER TABLE player_games ADD COLUMN IF NOT EXISTS family_name VARCHAR;
+CREATE TABLE IF NOT EXISTS stints (
+    game_id VARCHAR, idx INTEGER, period INTEGER, start_s DOUBLE, end_s DOUBLE,
+    h1 BIGINT, h2 BIGINT, h3 BIGINT, h4 BIGINT, h5 BIGINT, a1 BIGINT, a2 BIGINT, a3 BIGINT, a4 BIGINT, a5 BIGINT,
+    home_pts INTEGER, away_pts INTEGER, home_poss DOUBLE, away_poss DOUBLE, PRIMARY KEY (game_id, idx));
+CREATE TABLE IF NOT EXISTS odds_history (
+    game_id VARCHAR PRIMARY KEY, season VARCHAR, ml_home DOUBLE, ml_away DOUBLE, spread DOUBLE, total DOUBLE);
+CREATE TABLE IF NOT EXISTS stint_checks (
+    game_id VARCHAR PRIMARY KEY, stints INTEGER, bad_lineups INTEGER, unknown_subs INTEGER,
+    max_minutes_error_s DOUBLE, score_ok BOOLEAN, ok BOOLEAN);
 """
 
 

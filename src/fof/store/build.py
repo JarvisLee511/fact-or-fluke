@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from ..config import DATA, RAW, ROOT
-from . import db, load, raw
+from . import db, history_odds, load, raw, stints
 
 
 def _seasons(kind: str):
@@ -39,6 +39,9 @@ def build(seasons: set[str] | None = None) -> dict[str, int]:
                     add(table, batch)
                     batch = []
             add(table, batch)
+    counts.update(stints.build(con, seasons))
+    if seasons is None:     # past seasons only, for the backtest; the daily run has no use for it
+        add("odds_history", history_odds.rows(con))
     for season in _wanted("shots"):
         for f in raw.files("shots", season):
             st = "Playoffs" if f.name.startswith("Playoffs") else "Regular Season"
