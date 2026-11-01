@@ -63,7 +63,7 @@ def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_tota
     else:
         out.append("模擬帳本：還沒有結算的注")
     out.append(f"排行榜：新上榜 {changes.get('new_listed', 0)}、淘汰 {changes.get('eliminated', 0)}"
-               f"（本季上榜 {listed_total} 則）")
+               f"（本季上榜 {listed_total} 則、Fluke 判決 {changes.get('fluke', 0)} 則）")
     if records:
         out += ["", "昨晚紀錄："] + [f"• {r['text_zh']}" for r in records]
     if site_url:

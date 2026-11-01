@@ -208,6 +208,7 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .fact__en { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--ink-2); max-width: 70ch; }
 .fact__basis { margin-top: var(--space-2); font-size: var(--text-xs); color: var(--ink-3); }
 .fact__basis b { color: var(--ink-2); font-weight: 600; }
+.fact__verdict { margin-top: var(--space-1); font-size: var(--text-xs); line-height: 1.5; color: var(--ink-2); }
 .scale { position: relative; height: var(--space-3); margin-top: var(--space-2); max-width: 280px; }
 .scale::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--rule); }
 .scale__base { position: absolute; top: 1px; bottom: 1px; left: var(--x); width: 2px; transform: translateX(-50%); background: var(--ink-3); }
@@ -243,7 +244,7 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
   max-width: var(--page);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   background: var(--paper);
   border-top: 4px double var(--ink);
   padding-bottom: env(safe-area-inset-bottom);

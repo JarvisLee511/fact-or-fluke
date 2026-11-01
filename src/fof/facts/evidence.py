@@ -7,6 +7,8 @@
    baseline comes from a finite sample n0).
 3. Benjamini-Hochberg across every candidate scanned in the family the same day, so scanning
    thousands of splits does not manufacture "discoveries" out of luck.
+4. For the Fluke verdicts: how many of the N scanned would look at least this extreme if luck were the
+   only thing at work, N x two-sided p of the unshrunk gap.
 """
 from __future__ import annotations
 
@@ -34,6 +36,12 @@ def score(k: float, n: float, p0: float, m: float, n0: float | None = None) -> t
     var = p_hat * (1 - p_hat) / (n + m) + (p0 * (1 - p0) / n0 if n0 else 0.0)
     sd = math.sqrt(max(var, 1e-12))
     return p_hat, sd, (p_hat - p0) / sd
+
+
+def raw_z(k: float, n: float, p0: float, n0: float | None = None) -> float:
+    """The gap k/n - p0 in standard errors, before any shrinking."""
+    var = p0 * (1 - p0) * (1 / n + (1 / n0 if n0 else 0.0))
+    return (k / n - p0) / math.sqrt(max(var, 1e-12))
 
 
 def two_sided_p(z: float) -> float:

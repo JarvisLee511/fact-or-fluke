@@ -8,13 +8,14 @@ from datetime import date, timedelta
 
 from . import ledger
 from .config import ROOT, now_et
+from .facts import text
 from .ingest.injury import TEAM_TRICODE
 
 SITE_DATA = ROOT / "site" / "data"
 FOLLOWED = ["POR", "WAS", "PHI", "BOS", "MIA", "MEM", "OKC", "SAS", "MIN", "GSW", "DAL"]
 TEAM_NAME = {code: name for name, code in TEAM_TRICODE.items() if name != "Los Angeles Clippers"}
-FACT_COLS = ["key", "family", "season", "subject", "team", "k", "n", "p0", "rate", "status", "rank", "listed_on",
-             "eliminated_on", "text_zh", "text_en", "basis_zh", "basis_en"]
+FACT_COLS = ["key", "family", "kind", "season", "subject", "team", "k", "n", "p0", "rate", "status", "rank",
+             "listed_on", "eliminated_on", "text_zh", "text_en", "basis_zh", "basis_en", "verdict_zh", "verdict_en"]
 
 
 def _write(name: str, obj) -> None:
@@ -24,17 +25,18 @@ def _write(name: str, obj) -> None:
     os.replace(tmp, SITE_DATA / name)
 
 
-def _facts(con, season: str, status: str, order: str, limit: int | None = None, per_team: int = 0) -> list[dict]:
-    """Every fact, or the top `limit` league-wide (flagged top=True, the all-teams view) plus each team's top
-    `per_team`, so the team filter still has something to show."""
+def _facts(con, season: str, status: str, order: str, limit: int | None = None, per: int = 0) -> list[dict]:
+    """Every fact, or the first `limit` (flagged top=True: the unfiltered view) plus each team's and each kind's
+    first `per`, so the team and kind filters still have something to show."""
     if not limit:
         sql = f"select {', '.join(FACT_COLS)}, true from facts where season = ? and status = ? order by {order}"
     else:
         sql = f"""select {', '.join(FACT_COLS)}, overall <= {limit} from (
                       select *, row_number() over (order by {order}) as overall,
-                                row_number() over (partition by team order by {order}) as in_team
+                                row_number() over (partition by team order by {order}) as in_team,
+                                row_number() over (partition by kind order by {order}) as in_kind
                       from facts where season = ? and status = ?)
-                  where overall <= {limit} or in_team <= {per_team} order by {order}"""
+                  where overall <= {limit} or in_team <= {per} or in_kind <= {per} order by {order}"""
     return [dict(zip(FACT_COLS + ["top"], r)) for r in con.execute(sql, [season, status]).fetchall()]
 
 
@@ -44,11 +46,12 @@ def standings(con, seasons: list[tuple[str, str]]) -> dict:
         counts = dict(con.execute("select status, count(*) from facts where season = ? group by status",
                                   [season]).fetchall())
         out.append({"season": season, "label": label,
-                    "counts": {s: counts.get(s, 0) for s in ("listed", "observing", "eliminated")},
+                    "counts": {s: counts.get(s, 0) for s in ("listed", "observing", "fluke", "eliminated")},
                     "listed": _facts(con, season, "listed", "rank"),
-                    "observing": _facts(con, season, "observing", "abs(z) desc", 60, 10),
-                    "eliminated": _facts(con, season, "eliminated", "eliminated_on desc", 60, 10)})
-    return {"seasons": out}
+                    "observing": _facts(con, season, "observing", "rank", 60, 10),
+                    "fluke": _facts(con, season, "fluke", "rank", 60, 10),
+                    "eliminated": _facts(con, season, "eliminated", "eliminated_on desc, key", 60, 10)})
+    return {"seasons": out, "kinds": {k: list(v) for k, v in text.KIND.items()}}
 
 
 def results(con, day: date) -> list[dict]:

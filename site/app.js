@@ -16,9 +16,20 @@ const clampPct = (v) => `${(Math.min(Math.max(v, 0), 1) * 100).toFixed(1)}%`;
 
 const WHY = { elo: "Elo", home: "主場", b2b: "背靠背", rest: "休息天數", tif: "4 天 3 戰" };
 const STATUS = { listed: "上榜", observing: "觀察中", eliminated: "淘汰" };
-const TABS = ["today", "standings", "lastnight"];
+const TABS = ["today", "standings", "fluke", "lastnight"];
+const FACT_VIEWS = {
+  standings: {
+    title: "Standings", lead: "證據最強",
+    sub: "整季累積的 fun fact 排行榜，數據佐證越強排越前面，各種類輪流排。每則都寫了根據幾次，你自己判斷。「同類型」是出手量、助攻、籃板、身高最像他的 30 個球員。",
+  },
+  fluke: {
+    title: "Fluke", lead: "最像真的",
+    sub: "看起來很神，其實是運氣。這麼大的差距，光靠運氣就會落在某些人身上：每則都寫了運氣多常做到這種事、這次掃過幾個人。",
+  },
+};
 
-const state = { tab: "today", season: 0, status: "listed", team: "" };
+// season and team carry across Standings and Fluke; each page keeps its own kind
+const state = { tab: "today", season: 0, status: "listed", team: "", kind: { standings: "", fluke: "" } };
 const DATA = {};
 
 async function load(name) {
@@ -102,52 +113,64 @@ function renderToday() {
 function factRow(f) {
   const rank = f.status === "listed"
     ? `<span class="fact__rank">${f.rank}</span>`
-    : `<span class="fact__rank fact__rank--muted">${STATUS[f.status]}</span>`;
+    : `<span class="fact__rank fact__rank--muted">${f.status === "fluke" ? "Fluke" : STATUS[f.status]}</span>`;
   const out = f.status === "eliminated" && f.eliminated_on ? ` · ${esc(f.eliminated_on)} 淘汰` : "";
   return `<li class="fact">${rank}<div>
     <p class="fact__zh" lang="zh-Hant">${esc(f.text_zh)}</p>
     <p class="fact__en">${esc(f.text_en)}</p>
     <p class="fact__basis">${esc(f.basis_zh)} · <b>${esc(f.team)}</b>${out}</p>
+    ${f.verdict_zh ? `<p class="fact__verdict">${esc(f.verdict_zh)}</p>` : ""}
     <div class="scale" role="img" aria-label="${pct(f.rate)}，比較基準 ${pct(f.p0)}">
       <i class="scale__base" style="--x:${clampPct(f.p0)}"></i><i class="scale__dot" style="--x:${clampPct(f.rate)}"></i>
     </div>
   </div></li>`;
 }
 
-function renderStandings() {
+function renderFacts(which) {
   const seasons = DATA.standings.seasons || [];
   const s = seasons[state.season] || seasons[0] || {};
-  const list = s[state.status] || [];
-  // observing / eliminated ship the league-wide top (top: true) plus each team's strongest few
-  const shown = state.team ? list.filter((f) => f.team === state.team) : list.filter((f) => f.top !== false);
+  const status = which === "fluke" ? "fluke" : state.status;
+  const list = s[status] || [];
+  const kinds = DATA.standings.kinds || {};
+  const here = Object.keys(kinds).filter((k) => list.some((f) => f.kind === k));
+  if (!here.includes(state.kind[which])) state.kind[which] = "";
+  const kind = state.kind[which], team = state.team, v = FACT_VIEWS[which];
+  // observing / fluke / eliminated ship the first 60 (top: true) plus each team's and each kind's first 10
+  const shown = list.filter((f) => (!team || f.team === team) && (!kind || f.kind === kind)
+                                   && (team || kind || f.top !== false));
   const counts = s.counts || {};
-  const total = counts[state.status] ?? list.length;
-  const note = state.status === "listed" || !shown.length ? ""
-    : !state.team && shown.length < total ? `<p class="list-note">證據最強的 ${shown.length} 則，共 ${total} 則。選球隊可以看各隊的。</p>`
-    : state.team && shown.length >= 10 ? `<p class="list-note">${esc(state.team)} 證據最強的 ${shown.length} 則</p>` : "";
+  const total = counts[status] ?? list.length;
+  const note = status === "listed" || !shown.length ? ""
+    : !team && !kind && shown.length < total ? `<p class="list-note">${v.lead}的 ${shown.length} 則，共 ${total} 則。選球隊或種類可以看更多。</p>`
+    : (team || kind) && shown.length >= 10 ? `<p class="list-note">只列出每隊、每種類最前面的 10 則</p>` : "";
   const teams = DATA.meta.teams || {}, followed = DATA.meta.followed || [];
-  const opt = (c) => `<option value="${c}"${c === state.team ? " selected" : ""}>${c} · ${esc(teams[c] || c)}</option>`;
+  const opt = (c) => `<option value="${c}"${c === team ? " selected" : ""}>${c} · ${esc(teams[c] || c)}</option>`;
   const others = Object.keys(teams).filter((c) => !followed.includes(c)).sort();
-  let empty = `<p class="empty">這個條件下沒有 fun fact</p>`;
-  if (!list.length && state.status === "listed" && state.season === 0 && seasons.length > 1) {
-    empty = `<div class="empty"><p>本季還沒有 fun fact 上榜：開季才兩週，樣本還小，證據會隨比賽累積。</p>
+  const kindOpt = (k) => `<option value="${k}"${k === kind ? " selected" : ""}>${esc(kinds[k][0])}</option>`;
+  let empty = `<p class="empty">這個條件下沒有${which === "fluke" ? " Fluke 判決" : " fun fact"}</p>`;
+  if (!list.length && state.season === 0 && seasons.length > 1 && (which === "fluke" || status === "listed")) {
+    empty = `<div class="empty"><p>本季還沒有${which === "fluke" ? " Fluke 判決" : " fun fact 上榜"}：開季才兩週，樣本還小，證據會隨比賽累積。</p>
       <div class="seg"><button type="button" data-season="1">看 ${esc(seasons[1].label.replace(" demo", ""))} 示範榜</button></div></div>`;
   }
-  $("#view-standings").innerHTML = `
+  $(`#view-${which}`).innerHTML = `
     <header class="view__head">
-      <h1 class="view__title">Standings</h1>
-      <p class="view__sub">整季累積的 fun fact 排行榜，數據佐證越強排越前面。每則都寫了根據幾次，你自己判斷。</p>
+      <h1 class="view__title">${v.title}</h1>
+      <p class="view__sub">${v.sub}</p>
     </header>
     <div class="standings">
       <div class="controls">
-        <span class="controls__label" id="lbl-season">球季</span>
-        <div class="seg" role="group" aria-labelledby="lbl-season">${seasons.map((x, i) =>
+        <span class="controls__label" id="${which}-lbl-season">球季</span>
+        <div class="seg" role="group" aria-labelledby="${which}-lbl-season">${seasons.map((x, i) =>
           `<button type="button" aria-pressed="${i === state.season}" data-season="${i}">${esc(x.label.replace(" demo", " 示範"))}</button>`).join("")}</div>
-        <span class="controls__label" id="lbl-status">狀態</span>
-        <div class="seg" role="group" aria-labelledby="lbl-status">${Object.keys(STATUS).map((k) =>
-          `<button type="button" aria-pressed="${k === state.status}" data-status="${k}">${STATUS[k]} <span class="seg__n">${counts[k] ?? (s[k] || []).length}</span></button>`).join("")}</div>
-        <label class="controls__label" for="team">球隊</label>
-        <select class="select" id="team">
+        ${which === "standings" ? `<span class="controls__label" id="${which}-lbl-status">狀態</span>
+        <div class="seg" role="group" aria-labelledby="${which}-lbl-status">${Object.keys(STATUS).map((k) =>
+          `<button type="button" aria-pressed="${k === state.status}" data-status="${k}">${STATUS[k]} <span class="seg__n">${counts[k] ?? (s[k] || []).length}</span></button>`).join("")}</div>` : ""}
+        <label class="controls__label" for="${which}-kind">種類</label>
+        <select class="select" id="${which}-kind">
+          <option value="">全部種類</option>${here.map(kindOpt).join("")}
+        </select>
+        <label class="controls__label" for="${which}-team">球隊</label>
+        <select class="select" id="${which}-team">
           <option value="">全部球隊</option>
           <optgroup label="關注">${followed.map(opt).join("")}</optgroup>
           <optgroup label="其他">${others.map(opt).join("")}</optgroup>
@@ -221,7 +244,9 @@ function chooseLayout(mode) {
 
 /* ---------- shell ---------- */
 
-const RENDER = { today: renderToday, standings: renderStandings, lastnight: renderLastNight };
+const renderFactViews = () => { renderFacts("standings"); renderFacts("fluke"); };
+const RENDER = { today: renderToday, standings: () => renderFacts("standings"), fluke: () => renderFacts("fluke"),
+                 lastnight: renderLastNight };
 
 function show(tab, { focus = false } = {}) {
   state.tab = TABS.includes(tab) ? tab : "today";
@@ -252,17 +277,24 @@ function bind() {
     const i = TABS.indexOf(state.tab) + (e.key === "ArrowRight" ? 1 : -1);
     show(TABS[(i + TABS.length) % TABS.length], { focus: true });
   });
-  $("#view-standings").addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    if (b.dataset.season != null) { state.season = Number(b.dataset.season); state.status = "listed"; }
-    else if (b.dataset.status) state.status = b.dataset.status;
-    else return;
-    renderStandings();
-  });
-  $("#view-standings").addEventListener("change", (e) => {
-    if (e.target.id === "team") { state.team = e.target.value; renderStandings(); $("#team").focus(); }
-  });
+  for (const which of ["standings", "fluke"]) {
+    $(`#view-${which}`).addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.season != null) { state.season = Number(b.dataset.season); state.status = "listed"; }
+      else if (b.dataset.status) state.status = b.dataset.status;
+      else return;
+      renderFactViews();
+    });
+    $(`#view-${which}`).addEventListener("change", (e) => {
+      const id = e.target.id;
+      if (id === `${which}-team`) state.team = e.target.value;
+      else if (id === `${which}-kind`) state.kind[which] = e.target.value;
+      else return;
+      renderFactViews();
+      $(`#${id}`).focus();
+    });
+  }
 }
 
 async function init() {

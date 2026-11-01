@@ -40,12 +40,14 @@
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button type="button" role="tab" id="tab-today" aria-controls="view-today" aria-selected="true" data-tab="today">Today</button>
     <button type="button" role="tab" id="tab-standings" aria-controls="view-standings" aria-selected="false" data-tab="standings">Standings</button>
+    <button type="button" role="tab" id="tab-fluke" aria-controls="view-fluke" aria-selected="false" data-tab="fluke">Fluke</button>
     <button type="button" role="tab" id="tab-lastnight" aria-controls="view-lastnight" aria-selected="false" data-tab="lastnight">Last night</button>
   </nav>
 
   <main>
     <section class="view" id="view-today" role="tabpanel" aria-labelledby="tab-today"></section>
     <section class="view" id="view-standings" role="tabpanel" aria-labelledby="tab-standings" hidden></section>
+    <section class="view" id="view-fluke" role="tabpanel" aria-labelledby="tab-fluke" hidden></section>
     <section class="view" id="view-lastnight" role="tabpanel" aria-labelledby="tab-lastnight" hidden></section>
     <p class="colophon" id="colophon"></p>
   </main>
