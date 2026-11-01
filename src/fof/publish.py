@@ -24,19 +24,30 @@ def _write(name: str, obj) -> None:
     os.replace(tmp, SITE_DATA / name)
 
 
-def _facts(con, season: str, status: str, order: str, limit: int | None = None) -> list[dict]:
-    sql = f"select {', '.join(FACT_COLS)} from facts where season = ? and status = ? order by {order}"
-    rows = con.execute(sql + (f" limit {limit}" if limit else ""), [season, status]).fetchall()
-    return [dict(zip(FACT_COLS, r)) for r in rows]
+def _facts(con, season: str, status: str, order: str, limit: int | None = None, per_team: int = 0) -> list[dict]:
+    """Every fact, or the top `limit` league-wide (flagged top=True, the all-teams view) plus each team's top
+    `per_team`, so the team filter still has something to show."""
+    if not limit:
+        sql = f"select {', '.join(FACT_COLS)}, true from facts where season = ? and status = ? order by {order}"
+    else:
+        sql = f"""select {', '.join(FACT_COLS)}, overall <= {limit} from (
+                      select *, row_number() over (order by {order}) as overall,
+                                row_number() over (partition by team order by {order}) as in_team
+                      from facts where season = ? and status = ?)
+                  where overall <= {limit} or in_team <= {per_team} order by {order}"""
+    return [dict(zip(FACT_COLS + ["top"], r)) for r in con.execute(sql, [season, status]).fetchall()]
 
 
 def standings(con, seasons: list[tuple[str, str]]) -> dict:
     out = []
     for season, label in seasons:
+        counts = dict(con.execute("select status, count(*) from facts where season = ? group by status",
+                                  [season]).fetchall())
         out.append({"season": season, "label": label,
+                    "counts": {s: counts.get(s, 0) for s in ("listed", "observing", "eliminated")},
                     "listed": _facts(con, season, "listed", "rank"),
-                    "observing": _facts(con, season, "observing", "abs(z) desc", 60),
-                    "eliminated": _facts(con, season, "eliminated", "eliminated_on desc", 60)})
+                    "observing": _facts(con, season, "observing", "abs(z) desc", 60, 10),
+                    "eliminated": _facts(con, season, "eliminated", "eliminated_on desc", 60, 10)})
     return {"seasons": out}
 
 

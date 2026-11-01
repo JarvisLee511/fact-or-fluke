@@ -1,8 +1,10 @@
 """Candidate 'pattern' fun facts, one builder per family (season-to-date, regular season).
 
 Every candidate has: family, season, key, subject_id, subject, team, k, n, p0 (the comparison rate),
-n0 (sample size behind p0, or None when p0 is a pooled peer rate with negligible noise), group (facts
-in the same group are two views of one thing: only the strongest is kept), and detail for the text.
+n0 (sample size behind p0, or None when p0 is a pooled peer rate with negligible noise) and detail for the
+text. Two views of one thing (3P% and FG% off the same passer; shooting and passing out of the same touch)
+share a key: only the stronger is kept each day, and the fact keeps its place in the standings when the
+stronger view changes.
 """
 from __future__ import annotations
 
@@ -70,9 +72,9 @@ class Context:
 
 def _cand(family, ctx: Context, pid, k, n, p0, n0=None, group=None, other="", **detail) -> dict:
     name, team = ctx.who(pid, detail.pop("fallback_name", ""))
-    key = "|".join([family, ctx.season, str(pid), str(other)])
+    key = "|".join([group or family, ctx.season, str(pid), str(other)])
     return dict(family=family, season=ctx.season, key=key, subject_id=pid, subject=name, team=team,
-                k=int(k), n=int(n), p0=float(p0), n0=n0, group=group or key, detail=detail)
+                k=int(k), n=int(n), p0=float(p0), n0=n0, detail=detail)
 
 
 def pooled_by_position(rows: list[tuple[int, float, float]], pos: dict) -> dict[str, float]:
@@ -105,7 +107,7 @@ def passes(ctx: Context) -> list[dict]:
             if n < 1 or N - n < 30:
                 continue
             out.append(_cand(fam, ctx, pid, k, n, (K - k) / (N - n), n0=N - n, other=passer_id,
-                             group=f"pass|{pid}|{passer_id}", passer=_flip_name(passer_name), k0=K - k))
+                             group="pass", passer=_flip_name(passer_name), k0=K - k))
     return out
 
 
@@ -120,7 +122,7 @@ def touches(ctx: Context) -> list[dict]:
                 g = ctx.pos.get(pid, "?")
                 if g in base:
                     out.append(_cand(f"touch_{action}:{touch}", ctx, pid, k, n, base[g], other=touch,
-                                     group=f"touch|{pid}|{touch}", touch=touch, pos=g,
+                                     group="touch", touch=touch, pos=g,
                                      fallback_name=next(r["PLAYER_NAME"] for r in rows if r["PLAYER_ID"] == pid)))
     return out
 

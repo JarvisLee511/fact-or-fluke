@@ -116,7 +116,13 @@ function renderStandings() {
   const seasons = DATA.standings.seasons || [];
   const s = seasons[state.season] || seasons[0] || {};
   const list = s[state.status] || [];
-  const shown = state.team ? list.filter((f) => f.team === state.team) : list;
+  // observing / eliminated ship the league-wide top (top: true) plus each team's strongest few
+  const shown = state.team ? list.filter((f) => f.team === state.team) : list.filter((f) => f.top !== false);
+  const counts = s.counts || {};
+  const total = counts[state.status] ?? list.length;
+  const note = state.status === "listed" || !shown.length ? ""
+    : !state.team && shown.length < total ? `<p class="list-note">證據最強的 ${shown.length} 則，共 ${total} 則。選球隊可以看各隊的。</p>`
+    : state.team && shown.length >= 10 ? `<p class="list-note">${esc(state.team)} 證據最強的 ${shown.length} 則</p>` : "";
   const teams = DATA.meta.teams || {}, followed = DATA.meta.followed || [];
   const opt = (c) => `<option value="${c}"${c === state.team ? " selected" : ""}>${c} · ${esc(teams[c] || c)}</option>`;
   const others = Object.keys(teams).filter((c) => !followed.includes(c)).sort();
@@ -134,7 +140,7 @@ function renderStandings() {
       <div class="seg" role="group" aria-label="球季">${seasons.map((x, i) =>
         `<button type="button" aria-pressed="${i === state.season}" data-season="${i}">${esc(x.label.replace(" demo", " 示範"))}</button>`).join("")}</div>
       <div class="seg" role="group" aria-label="狀態">${Object.keys(STATUS).map((k) =>
-        `<button type="button" aria-pressed="${k === state.status}" data-status="${k}">${STATUS[k]} ${(s[k] || []).length}</button>`).join("")}</div>
+        `<button type="button" aria-pressed="${k === state.status}" data-status="${k}">${STATUS[k]} ${counts[k] ?? (s[k] || []).length}</button>`).join("")}</div>
       <label class="visually-hidden" for="team">球隊</label>
       <select class="select" id="team">
         <option value="">全部球隊</option>
@@ -142,6 +148,7 @@ function renderStandings() {
         <optgroup label="其他">${others.map(opt).join("")}</optgroup>
       </select>
     </div>
+    ${note}
     ${shown.length ? `<ol class="facts">${shown.map(factRow).join("")}</ol>` : empty}`;
 }
 

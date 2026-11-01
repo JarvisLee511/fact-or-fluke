@@ -3,7 +3,8 @@
 listed      shrunk gap >= the family's delta AND a Benjamini-Hochberg discovery that day
 observing   raw gap >= delta but the evidence is not there yet
 eliminated  was listed, then below the bar for 14 straight days or the direction flipped (kept on record)
-Listed facts are ranked by |z|: the more data behind a fact, the higher it sits.
+An observing fact that falls back under the delta is dropped. Listed facts are ranked by |z|: the more data
+behind a fact, the higher it sits.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS fact_history (
 
 def evaluate(cands: list[dict]) -> list[dict]:
     """Adds rate, p_hat, z, m, listed_now and observing_now; drops samples below each family's min_n and
-    keeps only the strongest fact in each group."""
+    keeps only the strongest view of each key."""
     by_fam: dict[str, list[dict]] = {}
     for c in cands:
         by_fam.setdefault(c["family"], []).append(c)
@@ -51,8 +52,8 @@ def evaluate(cands: list[dict]) -> list[dict]:
         out += cs
     best: dict[str, dict] = {}
     for c in out:
-        if c["group"] not in best or abs(c["z"]) > abs(best[c["group"]]["z"]):
-            best[c["group"]] = c
+        if c["key"] not in best or abs(c["z"]) > abs(best[c["key"]]["z"]):
+            best[c["key"]] = c
     return list(best.values())
 
 
@@ -61,9 +62,9 @@ def update(con: duckdb.DuckDBPyConnection, season: str, day: date, season_label:
     con.execute(SCHEMA)
     label = season_label or season
     cands = evaluate(families.candidates(con, season))
-    old = {r[0]: dict(zip(["status", "first_seen", "listed_on", "eliminated_on", "below_since", "p_hat", "p0"], r[1:]))
-           for r in con.execute("""select key, status, first_seen, listed_on, eliminated_on, below_since, p_hat, p0
-                                   from facts where season = ?""", [season]).fetchall()}
+    cols = ["status", "first_seen", "listed_on", "eliminated_on", "below_since", "p_hat", "p0", "family"]
+    old = {r[0]: dict(zip(cols, r[1:])) for r in con.execute(
+        f"select key, {', '.join(cols)} from facts where season = ?", [season]).fetchall()}
     changes = {"new_listed": [], "eliminated": []}
     rows = []
     for c in cands:
@@ -77,8 +78,9 @@ def update(con: duckdb.DuckDBPyConnection, season: str, day: date, season_label:
             if not was_listed:
                 listed_on = day
                 changes["new_listed"].append(c["key"])
-        elif was_listed:
-            flipped = (c["p_hat"] - c["p0"]) * ((prev["p_hat"] or 0) - (prev["p0"] or 0)) < 0
+        elif was_listed:  # a direction only means something within one view (shooting more = passing less)
+            flipped = (prev["family"] == c["family"]
+                       and (c["p_hat"] - c["p0"]) * ((prev["p_hat"] or 0) - (prev["p0"] or 0)) < 0)
             below_since = below_since or day
             if flipped or day - below_since >= GRACE:
                 status, eliminated_on = "eliminated", day
@@ -99,12 +101,30 @@ def update(con: duckdb.DuckDBPyConnection, season: str, day: date, season_label:
                          listed_on=listed_on, eliminated_on=eliminated_on, below_since=below_since,
                          text_zh=zh, text_en=en, basis_zh=bzh, basis_en=ben, detail=json.dumps(c["detail"]),
                          updated_on=day))
-    listed = sorted((r for r in rows if r["status"] == "listed"), key=lambda r: -abs(r["z"]))
-    for i, r in enumerate(listed, 1):
-        r["rank"] = i
     from ..store import db
     db.upsert(con, "facts", rows)
     db.upsert(con, "fact_history", [dict(day=day, key=r["key"], k=r["k"], n=r["n"], z=r["z"], status=r["status"])
                                     for r in rows])
-    counts = {s: sum(r["status"] == s for r in rows) for s in ("listed", "observing", "eliminated")}
-    return {**counts, "candidates": len(cands), **{k: len(v) for k, v in changes.items()}}
+    seen = {r["key"] for r in rows}
+    for key, prev in old.items():
+        if key in seen:
+            continue
+        if prev["status"] == "observing":    # back under the delta: nothing left to watch
+            con.execute("delete from facts where key = ?", [key])
+        elif prev["status"] == "listed":     # out of today's scan: same grace as falling below the bar
+            below_since = prev["below_since"] or day
+            gone = day - below_since >= GRACE
+            con.execute("update facts set status = ?, eliminated_on = ?, below_since = ?, updated_on = ? "
+                        "where key = ?", ["eliminated" if gone else "listed", day if gone else None,
+                                          below_since, day, key])
+            if gone:
+                changes["eliminated"].append(key)
+    con.execute("update facts set rank = null where season = ?", [season])
+    con.execute("""update facts set rank = r.rk
+                   from (select key, row_number() over (order by abs(z) desc, key) as rk
+                         from facts where season = ? and status = 'listed') r
+                   where facts.key = r.key""", [season])
+    counts = dict(con.execute("select status, count(*) from facts where season = ? group by status",
+                              [season]).fetchall())
+    return {**{s: counts.get(s, 0) for s in ("listed", "observing", "eliminated")}, "candidates": len(cands),
+            **{k: len(v) for k, v in changes.items()}}

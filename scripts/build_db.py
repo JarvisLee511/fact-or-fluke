@@ -5,5 +5,6 @@ import time
 from fof.store.build import build
 
 t0 = time.time()
-print(f"built in {time.time() - t0:.0f}s: {build()}")
+counts = build()
+print(f"built in {time.time() - t0:.0f}s: {counts}")
 sys.exit(0)
