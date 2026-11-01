@@ -12,7 +12,9 @@ def _seasons(kind: str):
     return sorted(p.name for p in (RAW / kind).glob("*") if p.is_dir())
 
 
-def build() -> dict[str, int]:
+def build(seasons: set[str] | None = None) -> dict[str, int]:
+    """Load the archive. `seasons` limits the per-season files to those seasons: the daily run reloads only the
+    current one, since past seasons never change. None (scripts/build_db.py) reloads everything."""
     from ..betting import odds_rows
 
     con = db.connect()
@@ -21,12 +23,15 @@ def build() -> dict[str, int]:
     def add(table: str, rows: list[dict]):
         counts[table] = counts.get(table, 0) + db.upsert(con, table, rows)
 
-    for season in _seasons("schedule"):
+    def _wanted(kind: str):
+        return [s for s in _seasons(kind) if seasons is None or s in seasons]
+
+    for season in _wanted("schedule"):
         fs = raw.files("schedule", season)
         if fs:
             add("games", load.schedule_rows(raw.read(fs[-1]), season))
     for kind, loader, table in (("box", load.box_rows, "player_games"), ("pbp", load.pbp_rows, "pbp")):
-        for season in _seasons("games"):
+        for season in _wanted("games"):
             batch: list[dict] = []
             for f in raw.files("games", season, kind):
                 batch += loader(raw.read(f))
@@ -34,15 +39,15 @@ def build() -> dict[str, int]:
                     add(table, batch)
                     batch = []
             add(table, batch)
-    for season in _seasons("shots"):
+    for season in _wanted("shots"):
         for f in raw.files("shots", season):
             st = "Playoffs" if f.name.startswith("Playoffs") else "Regular Season"
             add("shots", load.shot_rows(raw.read(f), season, st))
-    for season in _seasons("dash"):
+    for season in _wanted("dash"):
         for day in sorted(p.name for p in (RAW / "dash" / season).glob("*")):
             for f in raw.files("dash", season, day):
                 add("dash", load.dash_rows(raw.read(f), season, day, f.name.split(".")[0]))
-    for season in _seasons("passes"):
+    for season in _wanted("passes"):
         for day in sorted(p.name for p in (RAW / "passes" / season).glob("*")):
             batch = []
             for f in raw.files("passes", season, day):

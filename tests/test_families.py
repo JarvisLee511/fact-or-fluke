@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from fof.config import previous_season
 from fof.facts import families, text
 
 
@@ -15,8 +16,8 @@ def test_peer_baseline_pools_the_closest_roles_and_never_the_player_himself(monk
 
 
 def test_previous_season():
-    assert families.previous_season("2026-27") == "2025-26"
-    assert families.previous_season("2000-01") == "1999-00"
+    assert previous_season("2026-27") == "2025-26"
+    assert previous_season("2000-01") == "1999-00"
 
 
 def test_every_family_has_its_sentences_in_both_directions():

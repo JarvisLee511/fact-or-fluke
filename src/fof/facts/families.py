@@ -20,6 +20,8 @@ from collections import defaultdict
 import duckdb
 import numpy as np
 
+from ..config import previous_season
+
 # delta: smallest gap from the comparison that is worth telling; min_n: smallest sample scanned; kind: the group
 # the standings take turns between and filter by; split: a situation split; one_way: only "more than the
 # comparison" is a story (the other way round mostly means two players are rarely on the floor together)
@@ -70,11 +72,6 @@ def config(family: str) -> dict:
 def _flip_name(last_first: str) -> str:
     last, _, first = last_first.partition(",")
     return f"{first.strip()} {last.strip()}".strip() if first else last_first
-
-
-def previous_season(season: str) -> str:
-    start = int(season[:4]) - 1
-    return f"{start}-{str(start + 1)[2:]}"
 
 
 def role_vectors(con: duckdb.DuckDBPyConnection, season: str) -> dict[int, np.ndarray]:

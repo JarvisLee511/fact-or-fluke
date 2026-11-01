@@ -42,3 +42,9 @@ def season_of(d: date) -> str:
     """NBA season label for a date, e.g. 2026-11-01 -> '2026-27'. Seasons roll over on Aug 1."""
     start = d.year if d.month >= 8 else d.year - 1
     return f"{start}-{str(start + 1)[-2:]}"
+
+
+def previous_season(season: str) -> str:
+    """'2026-27' -> '2025-26'."""
+    start = int(season[:4]) - 1
+    return f"{start}-{str(start + 1)[-2:]}"

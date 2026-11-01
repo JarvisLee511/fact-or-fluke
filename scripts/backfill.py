@@ -1,22 +1,26 @@
 """One-time history fetch into the raw archive (network only; run scripts/build_db.py afterwards).
 
 Resumable: anything already archived is skipped, so re-running after a crash, a sleep or a block
-continues where it stopped. Keeps the laptop awake while it runs. Log: data/logs/backfill.log
+continues where it stopped. Keeps the laptop awake while it runs, and steps aside for the morning run.
+Log: data/logs/backfill.log
 """
 from __future__ import annotations
 
 import ctypes
 import logging
 import sys
+import time
 from datetime import date, timedelta
+from datetime import time as clock
 
-from fof.config import DATA, season_of, today_et
+from fof.config import DATA, now_et, season_of, today_et
 from fof.ingest import collect
 from fof.ingest.http import FetchError
 
-ELO_ONLY = ["2024-25"]                          # scores from the schedule are enough to warm up Elo
 FULL = ["2025-26", season_of(today_et())]       # box, play-by-play, shots, dashboards, passes
+HISTORY = [f"{y}-{str(y + 1)[2:]}" for y in range(2024, 2015, -1)]   # 2024-25 back to 2016-17: box, play-by-play
 GAME_PREFIXES = ("002", "004", "005")           # regular season, playoffs, play-in
+MORNING_RUN = (clock(5, 30), clock(13, 0))      # the daily run has stats.nba.com to itself in this window (ET)
 
 log = logging.getLogger("backfill")
 
@@ -24,6 +28,15 @@ log = logging.getLogger("backfill")
 def keep_awake() -> None:
     if sys.platform == "win32":  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED: no idle sleep while this process lives
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
+
+
+def step_aside() -> None:
+    """Sleep through the morning run's window, so the two never hit stats.nba.com at once."""
+    now = now_et()
+    if MORNING_RUN[0] <= now.time() < MORNING_RUN[1]:
+        resume = now.replace(hour=MORNING_RUN[1].hour, minute=MORNING_RUN[1].minute, second=0, microsecond=0)
+        log.info("pausing for the morning run until %s ET", resume.strftime("%H:%M"))
+        time.sleep((resume - now).total_seconds())
 
 
 def finals(payload: dict) -> list[dict]:
@@ -58,14 +71,16 @@ def main() -> int:
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     keep_awake()
     today = today_et()
-    for season in ELO_ONLY + FULL:
+    for season in FULL + HISTORY:
+        step_aside()
         sched = attempt(f"schedule {season}", lambda: collect.schedule(season, today))
-        if sched is None or season not in FULL:
+        if sched is None:
             continue
         games = finals(sched)
         log.info("season %s: %d final games", season, len(games))
         players: set[int] = set()
         for i, g in enumerate(games, 1):
+            step_aside()
             box = attempt(f"box {g['gameId']}", lambda: collect.game("box", g["gameId"], season))
             attempt(f"pbp {g['gameId']}", lambda: collect.game("pbp", g["gameId"], season))
             if box:
@@ -74,6 +89,8 @@ def main() -> int:
                             if p["statistics"].get("minutes")}
             if i % 100 == 0:
                 log.info("  %s games %d/%d", season, i, len(games))
+        if season not in FULL:      # the model needs only box scores and play-by-play from older seasons
+            continue
         days = sorted({date.fromisoformat(g["gameDateEst"][:10]) for g in games})
         current = season == FULL[-1]
         for st in (("Regular Season",) if current else ("Regular Season", "Playoffs")):

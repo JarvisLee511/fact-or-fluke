@@ -18,7 +18,7 @@ import sys
 from datetime import date, datetime, time, timedelta
 
 from . import betting, digest, ledger, publish
-from .config import DATA, ET, ROOT, now_et, season_of
+from .config import DATA, ET, ROOT, now_et, previous_season, season_of
 from .facts import records, standings
 from .ingest import collect, injury, odds
 from .ingest import nbastats as ns
@@ -125,8 +125,12 @@ def _git(args: list[str], repo=None) -> None:
 def predict(con, day: date) -> list[dict]:
     cols = ["game_id", "season", "game_date", "tip_utc", "home_id", "away_id", "home_code", "away_code",
             "home_score", "away_score", "neutral", "status"]
+    # the baseline keeps the window it was fitted on (this season and the two before), whatever history the
+    # database holds; the Phase 2 model is the one that uses the full history
+    since = previous_season(previous_season(season_of(day)))
     games = [dict(zip(cols, r)) for r in con.execute(
-        f"select {', '.join(cols)} from games where tip_utc is not null order by tip_utc").fetchall()]
+        f"select {', '.join(cols)} from games where tip_utc is not null and season >= ? order by tip_utc",
+        [since]).fetchall()]
     rows = baseline.feature_rows(games)
     first = min(r["season"] for r in rows)
     train = [r for r in rows if r["status"] == 3 and r["game_date"] < day
@@ -182,9 +186,9 @@ def scorecard(con, day: date) -> dict:
 
 
 def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
-    counts = build.build()
-    con = db.connect()
     season = season_of(day)
+    counts = build.build({season})       # past seasons never change; scripts/build_db.py reloads everything
+    con = db.connect()
     changes = standings.update(con, season, day)
     recs = records.last_night(con, day - timedelta(days=1))
     made = predict(con, day)
