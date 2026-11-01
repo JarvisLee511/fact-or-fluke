@@ -1,5 +1,7 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5 */
-/* Hallmark · macrostructure: agate-tabs (newspaper masthead + three tabbed agate pages + fixed bottom tab bar)
+/* Hallmark · macrostructure: agate-tabs (newspaper masthead + three tabbed agate pages + fixed bottom tab bar);
+   desktop = front-page grid (nameplate + sticky section row + ruled columns: games beside the scorecard,
+   filters in a rail beside two columns of facts, records beside scores)
    · theme: custom "newsprint agate" · direction: character = agate, deadpan, courtside; world = the sports
    section's box-score page; moments = the model-vs-market bar and the one value line per game; signature =
    the double rule of a newspaper nameplate · nav: bottom tab bar · footer: one-line colophon
@@ -40,6 +42,7 @@
   --text-xl: 22px;
   --text-2xl: 28px;
   --text-3xl: 40px;
+  --text-4xl: 52px;
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 120ms;
@@ -47,6 +50,10 @@
 
   --tabbar-h: 56px;
   --page: 720px;
+  --page-wide: 1200px;
+  --tabs-h-desk: 48px;
+  --rail-w: 240px;
+  --aside-w: 280px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -87,14 +94,15 @@ p, h1, h2, h3, ol, ul, dl, dd { margin: 0; }
   margin: 0 auto;
   padding: calc(env(safe-area-inset-top) + var(--space-4)) var(--space-4) var(--space-3);
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
   border-bottom: 4px double var(--ink);
 }
-.mast__word { font: 600 var(--text-2xl)/1 var(--font-display); }
+.mast__word { font: 600 var(--text-2xl)/1 var(--font-display); white-space: nowrap; }
 .mast__word span { color: var(--ink-3); padding: 0 var(--space-1); }
-.mast__date { font: 500 var(--text-md)/1 var(--font-display); color: var(--ink-2); white-space: nowrap; }
+.mast__date { margin-top: var(--space-1); font: 500 var(--text-sm)/1.2 var(--font-display); color: var(--ink-2); white-space: nowrap; }
 
 main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .view[hidden] { display: none; }
@@ -116,6 +124,7 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .strip dt { font-size: var(--text-xs); line-height: 1.3; color: var(--ink-2); }
 .strip dd { margin-top: var(--space-1); font: 600 var(--text-xl)/1.05 var(--font-display); }
 .strip .sub { display: block; margin-top: var(--space-1); font: 400 var(--text-xs)/1.3 var(--font-body); color: var(--ink-3); }
+.side-label { display: none; }
 .pos { color: var(--good); }
 .neg { color: var(--bad); }
 
@@ -166,6 +175,9 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .seg button:active { transform: translateY(1px); }
 .seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; transition: none; }
 .seg button:disabled { opacity: 0.55; cursor: not-allowed; }
+.seg--mode { margin-left: auto; }
+.seg--mode button { min-height: 36px; padding: 0 var(--space-2); font-size: var(--text-sm); }
+.controls__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .select {
   appearance: none;
   min-height: 44px;
@@ -228,6 +240,8 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
   right: 0;
   bottom: 0;
   z-index: 30;
+  max-width: var(--page);
+  margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   background: var(--paper);
@@ -246,10 +260,115 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
   transition: color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
 }
 .tabs button:hover { color: var(--ink); }
-.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; box-shadow: inset 0 3px 0 var(--ink); }
-.tabs button:active { background: var(--paper-2); }
+/* the marker is a background line, not an inset shadow: Chromium leaves a 1px vertical sliver of inset
+   shadow at the edges of fractional-width buttons (a 320px phone gives each tab 106.67px) */
+.tabs button[aria-selected="true"] {
+  color: var(--ink);
+  font-weight: 600;
+  background: linear-gradient(var(--ink), var(--ink)) left top / 100% 3px no-repeat;
+}
+.tabs button:active { background-color: var(--paper-2); }
 .tabs button:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; transition: none; }
 .tabs button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ---------- desktop: a newspaper front page ----------
+   Same DOM as the phone layout. The script in <head> sets [data-view="desktop"] before first paint when the
+   reader picked 電腦, or picked 自動 on a window at least 64rem wide. */
+[data-view="desktop"] body { padding-bottom: var(--space-8); }
+[data-view="desktop"] .mast,
+[data-view="desktop"] main { max-width: var(--page-wide); padding-left: var(--space-8); padding-right: var(--space-8); }
+[data-view="desktop"] .mast { padding-top: calc(env(safe-area-inset-top) + var(--space-6)); }
+[data-view="desktop"] .mast__word { font-size: var(--text-4xl); }
+[data-view="desktop"] .mast__date { font-size: var(--text-md); }
+[data-view="desktop"] .view__sub { max-width: 80ch; }
+
+/* the bottom tab bar becomes the section row under the nameplate and stays on screen while scrolling */
+[data-view="desktop"] .tabs {
+  position: sticky;
+  top: 0;
+  bottom: auto;
+  left: auto;
+  right: auto;
+  max-width: var(--page-wide);
+  display: flex;
+  gap: var(--space-8);
+  padding: 0 var(--space-8);
+  border-top: 0;
+  border-bottom: 1px solid var(--ink);
+}
+[data-view="desktop"] .tabs button { height: var(--tabs-h-desk); padding: 0; }
+[data-view="desktop"] .tabs button[aria-selected="true"] { background-position: left bottom; }
+
+/* two ruled columns, read across: games, facts */
+[data-view="desktop"] .cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+[data-view="desktop"] .cols-2 > :nth-child(odd) { padding-right: var(--space-6); }
+[data-view="desktop"] .cols-2 > :nth-child(even) { padding-left: var(--space-6); border-left: 1px solid var(--rule); }
+[data-view="desktop"] .cols-2 > .empty { grid-column: 1 / -1; padding-left: 0; border-left: 0; }
+
+/* Today: games, with the scorecard in a column on the right */
+[data-view="desktop"] .today {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--aside-w);
+  grid-template-areas: "games side";
+  column-gap: var(--space-8);
+  align-items: start;
+}
+[data-view="desktop"] .today__games { grid-area: games; }
+[data-view="desktop"] .today__side { grid-area: side; position: sticky; top: calc(var(--tabs-h-desk) + var(--space-4)); }
+[data-view="desktop"] .side-label { display: block; padding: var(--space-4) 0 var(--space-2); border-bottom: 1px solid var(--ink); font: 600 var(--text-lg)/1.1 var(--font-display); }
+[data-view="desktop"] .today__side .strip { grid-template-columns: minmax(0, 1fr); }
+[data-view="desktop"] .today__side .strip > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); }
+[data-view="desktop"] .today__side .strip dd { font-size: var(--text-2xl); }
+
+/* Standings: filters in a rail on the left, facts in two columns */
+[data-view="desktop"] .standings {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  column-gap: var(--space-8);
+  align-items: start;
+}
+[data-view="desktop"] .standings .controls {
+  position: sticky;
+  top: calc(var(--tabs-h-desk) + var(--space-4));
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0;
+  border-bottom: 0;
+}
+[data-view="desktop"] .controls__label {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+[data-view="desktop"] .standings .seg { flex-direction: column; }
+[data-view="desktop"] .standings .seg button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-right: 0;
+  border-bottom: 1px solid var(--ink);
+  text-align: left;
+}
+[data-view="desktop"] .standings .seg button:last-child { border-bottom: 0; }
+[data-view="desktop"] .standings .seg button[aria-pressed="true"] {
+  box-shadow: none;
+  background: linear-gradient(var(--ink), var(--ink)) left / 3px 100% no-repeat, var(--paper-2);
+}
+[data-view="desktop"] .standings .select { width: 100%; }
+
+/* Last night: records beside the scores */
+[data-view="desktop"] .lastnight {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  column-gap: var(--space-8);
+  align-items: start;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .view { animation: none; }

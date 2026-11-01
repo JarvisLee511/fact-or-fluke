@@ -91,8 +91,10 @@ function renderToday() {
         <span class="legend"><i class="swatch"></i>模型</span><span class="legend"><i class="swatch swatch--market"></i>賭盤</span>
       </p>
     </header>
-    ${strip(t.scorecard || {})}
-    ${games.length ? games.map(gameBlock).join("") : `<p class="empty">今天沒有比賽</p>`}`;
+    <div class="today">
+      <aside class="today__side" aria-label="戰績"><h2 class="side-label">戰績</h2>${strip(t.scorecard || {})}</aside>
+      <div class="today__games cols-2">${games.length ? games.map(gameBlock).join("") : `<p class="empty">今天沒有比賽</p>`}</div>
+    </div>`;
 }
 
 /* ---------- Standings ---------- */
@@ -136,20 +138,26 @@ function renderStandings() {
       <h1 class="view__title">Standings</h1>
       <p class="view__sub">整季累積的 fun fact 排行榜，數據佐證越強排越前面。每則都寫了根據幾次，你自己判斷。</p>
     </header>
-    <div class="controls">
-      <div class="seg" role="group" aria-label="球季">${seasons.map((x, i) =>
-        `<button type="button" aria-pressed="${i === state.season}" data-season="${i}">${esc(x.label.replace(" demo", " 示範"))}</button>`).join("")}</div>
-      <div class="seg" role="group" aria-label="狀態">${Object.keys(STATUS).map((k) =>
-        `<button type="button" aria-pressed="${k === state.status}" data-status="${k}">${STATUS[k]} ${counts[k] ?? (s[k] || []).length}</button>`).join("")}</div>
-      <label class="visually-hidden" for="team">球隊</label>
-      <select class="select" id="team">
-        <option value="">全部球隊</option>
-        <optgroup label="關注">${followed.map(opt).join("")}</optgroup>
-        <optgroup label="其他">${others.map(opt).join("")}</optgroup>
-      </select>
-    </div>
-    ${note}
-    ${shown.length ? `<ol class="facts">${shown.map(factRow).join("")}</ol>` : empty}`;
+    <div class="standings">
+      <div class="controls">
+        <span class="controls__label" id="lbl-season">球季</span>
+        <div class="seg" role="group" aria-labelledby="lbl-season">${seasons.map((x, i) =>
+          `<button type="button" aria-pressed="${i === state.season}" data-season="${i}">${esc(x.label.replace(" demo", " 示範"))}</button>`).join("")}</div>
+        <span class="controls__label" id="lbl-status">狀態</span>
+        <div class="seg" role="group" aria-labelledby="lbl-status">${Object.keys(STATUS).map((k) =>
+          `<button type="button" aria-pressed="${k === state.status}" data-status="${k}">${STATUS[k]} <span class="seg__n">${counts[k] ?? (s[k] || []).length}</span></button>`).join("")}</div>
+        <label class="controls__label" for="team">球隊</label>
+        <select class="select" id="team">
+          <option value="">全部球隊</option>
+          <optgroup label="關注">${followed.map(opt).join("")}</optgroup>
+          <optgroup label="其他">${others.map(opt).join("")}</optgroup>
+        </select>
+      </div>
+      <div class="standings__list">
+        ${note}
+        ${shown.length ? `<ol class="facts cols-2">${shown.map(factRow).join("")}</ol>` : empty}
+      </div>
+    </div>`;
 }
 
 /* ---------- Last Night ---------- */
@@ -173,13 +181,42 @@ function renderLastNight() {
       <h1 class="view__title">Last night</h1>
       <p class="view__sub">${longDate(l.day)} · ${games.length} 場</p>
     </header>
-    <h2 class="section-label">紀錄</h2>
-    ${recs.length ? `<ol class="records">${recs.map((r) => `<li class="record">
-        <span class="record__nth">${ordinal(r.count)}<small>time</small></span>
-        <div><p class="record__zh" lang="zh-Hant">${esc(r.text_zh)}</p><p class="record__en">${esc(r.text_en)}</p></div>
-      </li>`).join("")}</ol>` : `<p class="empty">昨晚沒有夠稀有的紀錄</p>`}
-    <h2 class="section-label">比分</h2>
-    ${games.length ? `<ol class="scores">${games.map(scoreRow).join("")}</ol>` : `<p class="empty">昨晚沒有比賽</p>`}`;
+    <div class="lastnight">
+      <section aria-labelledby="h-records">
+        <h2 class="section-label" id="h-records">紀錄</h2>
+        ${recs.length ? `<ol class="records">${recs.map((r) => `<li class="record">
+            <span class="record__nth">${ordinal(r.count)}<small>time</small></span>
+            <div><p class="record__zh" lang="zh-Hant">${esc(r.text_zh)}</p><p class="record__en">${esc(r.text_en)}</p></div>
+          </li>`).join("")}</ol>` : `<p class="empty">昨晚沒有夠稀有的紀錄</p>`}
+      </section>
+      <section aria-labelledby="h-scores">
+        <h2 class="section-label" id="h-scores">比分</h2>
+        ${games.length ? `<ol class="scores">${games.map(scoreRow).join("")}</ol>` : `<p class="empty">昨晚沒有比賽</p>`}
+      </section>
+    </div>`;
+}
+
+/* ---------- layout: 自動 / 電腦 / 手機 (the <head> script applied the saved choice before first paint) ---------- */
+
+const LAYOUT_KEY = "fof-layout";
+const WIDE = window.matchMedia("(min-width: 64rem)");
+const VIEWPORT = { device: "width=device-width, initial-scale=1, viewport-fit=cover", desktop: "width=1200, viewport-fit=cover" };
+
+function applyLayout(mode) {
+  const root = document.documentElement;
+  root.dataset.layout = mode;
+  // a phone that asks for 電腦 lays the page out 1200px wide and zooms out, like "request desktop site"
+  $('meta[name="viewport"]').setAttribute("content", mode === "desktop" ? VIEWPORT.desktop : VIEWPORT.device);
+  root.dataset.view = mode === "desktop" || (mode === "auto" && WIDE.matches) ? "desktop" : "mobile";
+  for (const b of document.querySelectorAll(".seg--mode button")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+}
+
+function chooseLayout(mode) {
+  // leaving the zoomed-out desktop page on a small screen: reload, so the browser starts again at its own width and zoom
+  const unzoom = document.documentElement.dataset.layout === "desktop" && mode !== "desktop" && screen.width < 1024;
+  try { localStorage.setItem(LAYOUT_KEY, mode); } catch (err) { /* storage blocked: switch now, just not remembered */ }
+  if (unzoom) location.reload();
+  else applyLayout(mode);
 }
 
 /* ---------- shell ---------- */
@@ -200,6 +237,12 @@ function show(tab, { focus = false } = {}) {
 }
 
 function bind() {
+  $(".seg--mode").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-mode]");
+    if (b) chooseLayout(b.dataset.mode);
+  });
+  // 自動 follows the window across the breakpoint (also when the viewport changes back after leaving 電腦)
+  WIDE.addEventListener("change", () => { if (document.documentElement.dataset.layout === "auto") applyLayout("auto"); });
   $(".tabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]");
     if (b) show(b.dataset.tab);
@@ -223,6 +266,7 @@ function bind() {
 }
 
 async function init() {
+  applyLayout(document.documentElement.dataset.layout || "auto");
   bind();
   try {
     const [meta, today, standings, lastnight] = await Promise.all(["meta", "today", "standings", "lastnight"].map(load));

@@ -3,6 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <script>
+    /* layout before first paint: 自動 (by screen width) / 電腦 / 手機, remembered in this browser */
+    (function () {
+      var mode = "auto", root = document.documentElement;
+      try { mode = localStorage.getItem("fof-layout") || "auto"; } catch (e) {}
+      if (mode !== "desktop" && mode !== "mobile") mode = "auto";
+      if (mode === "desktop") document.querySelector('meta[name="viewport"]').setAttribute("content", "width=1200, viewport-fit=cover");
+      root.setAttribute("data-layout", mode);
+      root.setAttribute("data-view", mode === "desktop" || (mode === "auto" && matchMedia("(min-width: 64rem)").matches) ? "desktop" : "mobile");
+    })();
+  </script>
   <title>Fact or Fluke</title>
   <meta name="description" content="Daily NBA fun facts ranked by how much data backs them, plus game predictions against the betting market.">
   <meta name="theme-color" content="#f6f2e8" media="(prefers-color-scheme: light)">
@@ -15,9 +26,22 @@
 </head>
 <body>
   <header class="mast">
-    <div class="mast__word">Fact<span>or</span>Fluke</div>
-    <div class="mast__date" id="mast-date"></div>
+    <div class="mast__plate">
+      <div class="mast__word">Fact<span>or</span>Fluke</div>
+      <div class="mast__date" id="mast-date"></div>
+    </div>
+    <div class="seg seg--mode" role="group" aria-label="版面">
+      <button type="button" data-mode="auto" aria-pressed="true">自動</button>
+      <button type="button" data-mode="desktop" aria-pressed="false">電腦</button>
+      <button type="button" data-mode="mobile" aria-pressed="false">手機</button>
+    </div>
   </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button type="button" role="tab" id="tab-today" aria-controls="view-today" aria-selected="true" data-tab="today">Today</button>
+    <button type="button" role="tab" id="tab-standings" aria-controls="view-standings" aria-selected="false" data-tab="standings">Standings</button>
+    <button type="button" role="tab" id="tab-lastnight" aria-controls="view-lastnight" aria-selected="false" data-tab="lastnight">Last night</button>
+  </nav>
 
   <main>
     <section class="view" id="view-today" role="tabpanel" aria-labelledby="tab-today"></section>
@@ -25,12 +49,6 @@
     <section class="view" id="view-lastnight" role="tabpanel" aria-labelledby="tab-lastnight" hidden></section>
     <p class="colophon" id="colophon"></p>
   </main>
-
-  <nav class="tabs" role="tablist" aria-label="Sections">
-    <button type="button" role="tab" id="tab-today" aria-controls="view-today" aria-selected="true" data-tab="today">Today</button>
-    <button type="button" role="tab" id="tab-standings" aria-controls="view-standings" aria-selected="false" data-tab="standings">Standings</button>
-    <button type="button" role="tab" id="tab-lastnight" aria-controls="view-lastnight" aria-selected="false" data-tab="lastnight">Last night</button>
-  </nav>
 
   <script src="app.js" defer></script>
 </body>
