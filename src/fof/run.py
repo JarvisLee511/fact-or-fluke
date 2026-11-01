@@ -249,5 +249,8 @@ def main(argv: list[str] | None = None) -> int:
         _save_state(day, st)
         log.info("done: %s", result)
         return 0
+    except Exception:
+        log.exception("run failed; the next scheduled run retries")  # pythonw has no console to print it
+        return 1
     finally:
         (STATE / "run.lock").unlink(missing_ok=True)
