@@ -3,8 +3,10 @@ refuses us we stop and report it, we never retry around a block."""
 from __future__ import annotations
 
 import gzip
+import json
 import os
 import random
+import re
 import time
 import urllib.error
 import urllib.request
@@ -25,16 +27,23 @@ RETRIES = int(os.environ.get("FOF_HTTP_RETRIES", "3"))
 TIMEOUT = float(os.environ.get("FOF_HTTP_TIMEOUT", "30"))
 
 _last_call: dict[str, float] = {}
+_SECRET_PARAM = re.compile(r"(?i)\b(api_?key|token|key)=[^&]+")
+
+
+def redact(url: str) -> str:
+    """Hide credentials carried in query strings so they never reach logs (public Actions logs included)."""
+    return _SECRET_PARAM.sub(lambda m: m.group(1) + "=***", url)
 
 
 class FetchError(RuntimeError):
     def __init__(self, url: str, status: int | None, body: bytes = b""):
-        super().__init__(f"{status} for {url}: {body[:200]!r}")
-        self.url, self.status, self.body = url, status, body
+        super().__init__(f"{status} for {redact(url)}: {body[:200]!r}")
+        self.url, self.status, self.body = redact(url), status, body
 
 
-def fetch(url: str, headers: dict | None = None, timeout: float | None = None,
-          retries: int | None = None) -> bytes:
+def request(url: str, headers: dict | None = None, data: bytes | None = None, timeout: float | None = None,
+            retries: int | None = None) -> tuple[bytes, dict[str, str]]:
+    """GET (or POST when data is given). Returns (body, response headers)."""
     timeout = TIMEOUT if timeout is None else timeout
     retries = RETRIES if retries is None else retries
     host = urlparse(url).netloc
@@ -46,11 +55,12 @@ def fetch(url: str, headers: dict | None = None, timeout: float | None = None,
             time.sleep(wait)
         _last_call[host] = time.monotonic()
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+            req = urllib.request.Request(url, data=data, headers=h, method="POST" if data is not None else "GET")
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 raw = r.read()
                 if r.headers.get("Content-Encoding") == "gzip":
                     raw = gzip.decompress(raw)
-                return raw
+                return raw, {k.lower(): v for k, v in r.headers.items()}
         except urllib.error.HTTPError as e:
             if 400 <= e.code < 500 and e.code != 429:
                 raise FetchError(url, e.code, e.read()) from None
@@ -60,3 +70,13 @@ def fetch(url: str, headers: dict | None = None, timeout: float | None = None,
         if attempt < retries:
             time.sleep(2 ** attempt * 2 + random.random())
     raise err
+
+
+def fetch(url: str, headers: dict | None = None, timeout: float | None = None, retries: int | None = None) -> bytes:
+    return request(url, headers, timeout=timeout, retries=retries)[0]
+
+
+def post_json(url: str, payload: dict, headers: dict | None = None, retries: int = 1) -> dict:
+    raw, _ = request(url, {"Content-Type": "application/json", **(headers or {})},
+                     data=json.dumps(payload).encode(), retries=retries)
+    return json.loads(raw or b"{}")
