@@ -1,5 +1,5 @@
 """Site data: site/data/*.json, rewritten after each daily run. The repo is public, so only derived
-outputs go here (predictions, fun facts, records, final scores), never raw API responses."""
+outputs go here (predictions, fun facts, final scores), never raw API responses."""
 from __future__ import annotations
 
 import json
@@ -73,14 +73,21 @@ def results(con, day: date) -> list[dict]:
     return out
 
 
-def publish(con, day: date, season: str, card: dict, records: list[dict], partial: bool) -> None:
+def last_night(con, day: date, season: str) -> dict:
+    """Last night's games, and the fun facts this morning's update put on the standings or overturned."""
+    moved = {}
+    for status, on, order in (("listed", "listed_on", "rank"), ("eliminated", "eliminated_on", "key")):
+        moved[status] = [dict(zip(FACT_COLS, r)) for r in con.execute(
+            f"select {', '.join(FACT_COLS)} from facts where season = ? and status = ? and {on} = ? order by {order}",
+            [season, status, day]).fetchall()]
+    return {"day": (day - timedelta(days=1)).isoformat(), **moved, "games": results(con, day - timedelta(days=1))}
+
+
+def publish(con, day: date, season: str, card: dict, night: dict, partial: bool) -> None:
     preds = sorted((p for p in ledger.read(ledger.PREDICTIONS) if p["game_date"] == day.isoformat()),
                    key=lambda p: p["tip_utc"])
     _write("today.json", {"day": day.isoformat(), "games": preds, "scorecard": card})
-    _write("lastnight.json", {"day": (day - timedelta(days=1)).isoformat(),
-                              "records": [{k: r[k] for k in ("name", "team", "count", "text_zh", "text_en")}
-                                          for r in records],
-                              "games": results(con, day - timedelta(days=1))})
+    _write("lastnight.json", night)
     demo = "2025-26"
     _write("standings.json", standings(con, [(season, season), (demo, f"{demo} demo")] if season != demo
                                        else [(season, season)]))

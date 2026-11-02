@@ -1,5 +1,6 @@
-"""The daily email: today's predictions first (the part read every morning), then the scorecard, the
-standings changes and last night's records. Chinese sentences, English names, plain text plus HTML."""
+"""The daily email: today's predictions first (the part read every morning), then the scorecard and the fun
+facts last night's games put on the standings or overturned. Chinese sentences, English names, plain text plus
+HTML."""
 from __future__ import annotations
 
 import html
@@ -42,7 +43,7 @@ def prediction_lines(p: dict) -> list[str]:
     return lines
 
 
-def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_total: int, records: list[dict],
+def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_total: int, night: dict,
             partial: bool, site_url: str | None = None) -> tuple[str, str, str]:
     title = f"Fact or Fluke｜{day.month}/{day.day}（{WEEKDAY[day.weekday()]}）"
     out = [title, ""]
@@ -62,10 +63,12 @@ def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_tota
                    f"{b['n']} 注 {b['wins']} 勝")
     else:
         out.append("模擬帳本：還沒有結算的注")
-    out.append(f"排行榜：新上榜 {changes.get('new_listed', 0)}、淘汰 {changes.get('eliminated', 0)}"
+    listed, overturned = night.get("listed") or [], night.get("eliminated") or []
+    out.append(f"排行榜：新上榜 {len(listed)}、被推翻 {len(overturned)}"
                f"（本季上榜 {listed_total} 則、Fluke 判決 {changes.get('fluke', 0)} 則）")
-    if records:
-        out += ["", "昨晚紀錄："] + [f"• {r['text_zh']}" for r in records]
+    for label, facts in (("新上榜", listed), ("被推翻", overturned)):
+        if facts:
+            out += ["", f"{label}："] + [f"• {f['text_zh']}" for f in facts]
     if site_url:
         out += ["", f"→ 詳細：{site_url}"]
     out += ["", "這是分析和娛樂，不是投資建議。"]

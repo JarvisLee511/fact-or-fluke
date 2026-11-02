@@ -11,7 +11,6 @@ const ET = "America/New_York";
 const tipTime = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: ET });
 const longDate = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US",
   { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th")}`;
 const clampPct = (v) => `${(Math.min(Math.max(v, 0), 1) * 100).toFixed(1)}%`;
 
 const WHY = { elo: "Elo", home: "主場", b2b: "背靠背", rest: "休息天數", tif: "4 天 3 戰" };
@@ -198,20 +197,21 @@ function scoreRow(g) {
 }
 
 function renderLastNight() {
-  const l = DATA.lastnight, recs = l.records || [], games = l.games || [];
+  const l = DATA.lastnight, games = l.games || [];
+  const moved = (id, title, list, none) => `<section aria-labelledby="h-${id}">
+        <h2 class="section-label" id="h-${id}">${title}</h2>
+        ${list.length ? `<ol class="facts">${list.map(factRow).join("")}</ol>` : `<p class="empty">${none}</p>`}
+      </section>`;
   $("#view-lastnight").innerHTML = `
     <header class="view__head">
       <h1 class="view__title">Last night</h1>
       <p class="view__sub">${longDate(l.day)} · ${games.length} 場</p>
     </header>
     <div class="lastnight">
-      <section aria-labelledby="h-records">
-        <h2 class="section-label" id="h-records">紀錄</h2>
-        ${recs.length ? `<ol class="records">${recs.map((r) => `<li class="record">
-            <span class="record__nth">${ordinal(r.count)}<small>time</small></span>
-            <div><p class="record__zh" lang="zh-Hant">${esc(r.text_zh)}</p><p class="record__en">${esc(r.text_en)}</p></div>
-          </li>`).join("")}</ol>` : `<p class="empty">昨晚沒有夠稀有的紀錄</p>`}
-      </section>
+      <div>
+        ${moved("listed", "新上榜", l.listed || [], "昨晚的比賽沒有讓 fun fact 上榜")}
+        ${moved("overturned", "被推翻", l.eliminated || [], "昨晚的比賽沒有推翻任何 fun fact")}
+      </div>
       <section aria-labelledby="h-scores">
         <h2 class="section-label" id="h-scores">比分</h2>
         ${games.length ? `<ol class="scores">${games.map(scoreRow).join("")}</ol>` : `<p class="empty">昨晚沒有比賽</p>`}

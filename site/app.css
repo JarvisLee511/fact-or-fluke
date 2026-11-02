@@ -1,7 +1,7 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5 */
 /* Hallmark · macrostructure: agate-tabs (newspaper masthead + three tabbed agate pages + fixed bottom tab bar);
    desktop = front-page grid (nameplate + sticky section row + ruled columns: games beside the scorecard,
-   filters in a rail beside two columns of facts, records beside scores)
+   filters in a rail beside two columns of facts, last night's standings moves beside the scores)
    · theme: custom "newsprint agate" · direction: character = agate, deadpan, courtside; world = the sports
    section's box-score page; moments = the model-vs-market bar and the one value line per game; signature =
    the double rule of a newspaper nameplate · nav: bottom tab bar · footer: one-line colophon
@@ -215,12 +215,6 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .scale__dot { position: absolute; top: 50%; left: var(--x); width: 9px; height: 9px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--accent); }
 
 /* last night */
-.records { list-style: none; padding: 0; }
-.record { display: grid; grid-template-columns: 5ch minmax(0, 1fr); gap: var(--space-3); padding: var(--space-4) 0; border-bottom: 1px solid var(--rule); }
-.record__nth { font: 600 var(--text-xl)/1 var(--font-display); text-align: right; }
-.record__nth small { display: block; margin-top: var(--space-1); font: 400 var(--text-xs)/1.2 var(--font-body); color: var(--ink-3); }
-.record__zh { font-weight: 500; max-width: 60ch; }
-.record__en { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--ink-2); max-width: 70ch; }
 .section-label { padding: var(--space-6) 0 var(--space-2); border-bottom: 1px solid var(--ink); font: 600 var(--text-xl)/1.1 var(--font-display); }
 .scores { list-style: none; padding: 0; }
 .score { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--rule); }
@@ -363,7 +357,7 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 }
 [data-view="desktop"] .standings .select { width: 100%; }
 
-/* Last night: records beside the scores */
+/* Last night: the standings moves beside the scores */
 [data-view="desktop"] .lastnight {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);

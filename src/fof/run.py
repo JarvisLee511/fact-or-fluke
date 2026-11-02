@@ -3,7 +3,7 @@
 collect  refresh the schedule, fetch last night's box scores and play-by-play, check whether last night's
          tracking data is out; once it is (or at the noon cutoff, D5) fetch season-to-date dashboards,
          passes, shots, the injury report and an odds snapshot
-analyze  rebuild the DB, advance the fun fact standings, find last night's records, predict today's games
+analyze  rebuild the DB, advance the fun fact standings, predict today's games
          (never after tip-off), append to the ledgers, email the digest, push the private repo
 Progress is checkpointed in data/state/<day>.json; a lock file stops two runs overlapping.
 """
@@ -19,7 +19,7 @@ from datetime import date, datetime, time, timedelta
 
 from . import betting, digest, ledger, publish
 from .config import DATA, ET, ROOT, now_et, previous_season, season_of
-from .facts import records, standings
+from .facts import standings
 from .ingest import collect, injury, odds
 from .ingest import nbastats as ns
 from .ingest.http import FetchError
@@ -190,7 +190,7 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     counts = build.build({season})       # past seasons never change; scripts/build_db.py reloads everything
     con = db.connect()
     changes = standings.update(con, season, day)
-    recs = records.last_night(con, day - timedelta(days=1))
+    night = publish.last_night(con, day, season)
     made = predict(con, day)
     n_pred = ledger.append(ledger.PREDICTIONS, made)
     n_bet = ledger.append(ledger.BETS, [dict(
@@ -203,9 +203,9 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     card = scorecard(con, day)
     listed_total = con.execute("select count(*) from facts where season = ? and status = 'listed'",
                                [season]).fetchone()[0]
-    publish.publish(con, day, season, card, recs, partial)
+    publish.publish(con, day, season, card, night, partial)
     con.close()
-    subject, text, html_doc = digest.compose(day, preds, card, changes, listed_total, recs, partial, SITE_URL)
+    subject, text, html_doc = digest.compose(day, preds, card, changes, listed_total, night, partial, SITE_URL)
     sent = email.send(subject, text, html_doc) if send else None
     if push:
         _git(["add", "ledger"])
@@ -214,7 +214,7 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
         _git(["add", "site/data"], ROOT)
         _git(["commit", "-q", "-m", f"site data {day}"], ROOT)
         _git(["push", "-q"], ROOT)
-    return {"rows": counts, "standings": changes, "records": len(recs), "predictions_new": n_pred,
+    return {"rows": counts, "standings": changes, "predictions_new": n_pred,
             "bets_new": n_bet, "email": sent}
 
 
