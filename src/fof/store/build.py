@@ -12,6 +12,19 @@ def _seasons(kind: str):
     return sorted(p.name for p in (RAW / kind).glob("*") if p.is_dir())
 
 
+def injuries(con, history: bool) -> int:
+    """The daily run's injury reports (raw/injury/<day>/) and, with `history`, the past seasons' ones
+    (raw/injury_hist/<season>/, scripts/backfill_injury.py)."""
+    n = 0
+    for kind in ("injury", "injury_hist") if history else ("injury",):
+        for folder in _seasons(kind):
+            batch = []
+            for f in raw.files(kind, folder):
+                batch += load.injury_rows(raw.read(f), f.name.split(".")[0])
+            n += db.upsert(con, "injuries", batch)
+    return n
+
+
 def build(seasons: set[str] | None = None) -> dict[str, int]:
     """Load the archive. `seasons` limits the per-season files to those seasons: the daily run reloads only the
     current one, since past seasons never change. None (scripts/build_db.py) reloads everything."""
@@ -61,6 +74,7 @@ def build(seasons: set[str] | None = None) -> dict[str, int]:
                        key=lambda p: p.name)
     if latest_index:
         add("players", load.player_rows(raw.read(latest_index)))
+    counts["injuries"] = injuries(con, history=seasons is None)
     for day in _seasons("odds"):
         for f in raw.files("odds", day):
             add("odds", odds_rows(raw.read(f)))

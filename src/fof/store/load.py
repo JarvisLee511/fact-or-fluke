@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 
+from ..config import ET
 from ..ingest import nbastats as ns
 
 SEASON_TYPE = {"001": "Preseason", "002": "Regular Season", "003": "All-Star", "004": "Playoffs",
@@ -104,3 +106,16 @@ def player_rows(payload: dict) -> list[dict]:
     return [dict(player_id=r["PERSON_ID"], name=f'{r["PLAYER_FIRST_NAME"]} {r["PLAYER_LAST_NAME"]}'.strip(),
                  team_code=r.get("TEAM_ABBREVIATION") or "", position=r.get("POSITION") or "",
                  height=r.get("HEIGHT") or "") for r in ns.result_sets(payload)["PlayerIndex"]]
+
+
+def injury_rows(report: list[dict], stamp: str) -> list[dict]:
+    """A parsed injury report (fof.ingest.injury.parse) -> injuries rows. report_at is when the league
+    published it, in UTC like every naive timestamp in the database; stamps are '2022-01-15_06PM' (hourly,
+    until 2025-12-21) or '2026-11-01_08_30AM'."""
+    t = datetime.strptime(stamp, "%Y-%m-%d_%I_%M%p" if stamp.count("_") == 2 else "%Y-%m-%d_%I%p")
+    report_at = t.replace(tzinfo=ET).astimezone(timezone.utc).replace(tzinfo=None)
+    return [dict(stamp=stamp, report_at=report_at, game_date=r.get("game_date") or "",
+                 game_time=r.get("game_time") or "", matchup=r.get("matchup") or "",
+                 team_code=r.get("team_tricode") or "", player=r.get("player") or "",
+                 player_name=r.get("player_name") or "", status=r.get("status") or "", reason=r.get("reason") or "")
+            for r in report]

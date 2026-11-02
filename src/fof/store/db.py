@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS stints (
     home_pts INTEGER, away_pts INTEGER, home_poss DOUBLE, away_poss DOUBLE, PRIMARY KEY (game_id, idx));
 CREATE TABLE IF NOT EXISTS odds_history (
     game_id VARCHAR PRIMARY KEY, season VARCHAR, ml_home DOUBLE, ml_away DOUBLE, spread DOUBLE, total DOUBLE);
+ALTER TABLE injuries ADD COLUMN IF NOT EXISTS report_at TIMESTAMP;
 CREATE TABLE IF NOT EXISTS stint_checks (
     game_id VARCHAR PRIMARY KEY, stints INTEGER, bad_lineups INTEGER, unknown_subs INTEGER,
     max_minutes_error_s DOUBLE, score_ok BOOLEAN, ok BOOLEAN);
