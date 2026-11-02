@@ -6,7 +6,7 @@ import json
 import os
 from datetime import date, timedelta
 
-from . import ledger
+from . import ledger, scores
 from .config import ROOT, now_et
 from .facts import text
 from .ingest.injury import TEAM_TRICODE
@@ -87,6 +87,7 @@ def last_night(con, day: date, season: str) -> dict:
 def publish(con, day: date, season: str, card: dict, night: dict, partial: bool) -> None:
     _write("today.json", {"day": day.isoformat(), "games": ledger.for_day(day, card["model"]), "scorecard": card})
     _write("lastnight.json", night)
+    _write("scorecard.json", scores.page(con, day, card))
     demo = "2025-26"
     _write("standings.json", standings(con, [(season, season), (demo, f"{demo} demo")] if season != demo
                                        else [(season, season)]))

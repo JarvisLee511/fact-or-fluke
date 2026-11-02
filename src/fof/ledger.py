@@ -14,6 +14,7 @@ from .config import ROOT
 LEDGER_DIR = ROOT / "private" / "ledger"
 PREDICTIONS = LEDGER_DIR / "predictions.jsonl"
 BETS = LEDGER_DIR / "bets.jsonl"
+PREGAME = LEDGER_DIR / "pregame.jsonl"       # the evening watch's recomputes (fof.watch)
 
 
 def read(path: Path) -> list[dict]:

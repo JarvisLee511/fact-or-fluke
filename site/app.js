@@ -17,7 +17,7 @@ const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
 const WHY = { players: "球員實力", absent: "傷兵缺陣", elo: "Elo 戰績", home: "主場", schedule: "賽程休息",
   b2b: "背靠背", rest: "休息天數", tif: "4 天 3 戰" };
 const STATUS = { listed: "上榜", observing: "觀察中", eliminated: "淘汰" };
-const TABS = ["today", "standings", "fluke", "lastnight"];
+const TABS = ["today", "standings", "fluke", "lastnight", "scorecard"];
 const FACT_VIEWS = {
   standings: {
     title: "Standings", lead: "證據最強",
@@ -230,6 +230,126 @@ function renderLastNight() {
     </div>`;
 }
 
+/* ---------- Scorecard ---------- */
+
+const CAL = { w: 320, h: 216, l: 40, r: 14, t: 14, b: 34 };   // calibration chart box (viewBox units)
+const calX = (v) => CAL.l + (v - 0.5) / 0.5 * (CAL.w - CAL.l - CAL.r);
+const calY = (v) => CAL.h - CAL.b - v * (CAL.h - CAL.t - CAL.b);
+const band = (b) => `${Math.round(b.lo * 100)}–${Math.round(b.hi * 100)}%`;
+
+function calibration(bins) {
+  if (!bins.length) return `<p class="empty">還沒有結果，第一批比賽打完才會有點。</p>`;
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${CAL.l}" x2="${CAL.w - CAL.r}" y1="${calY(v)}" y2="${calY(v)}"/>
+      <text x="${CAL.l - 6}" y="${calY(v) + 4}" text-anchor="end">${v * 100}%</text>`).join("");
+  const ticks = [0.5, 0.6, 0.7, 0.8, 0.9, 1].map((v) =>
+    `<text x="${calX(v)}" y="${CAL.h - CAL.b + 18}" text-anchor="middle">${Math.round(v * 100)}%</text>`).join("");
+  const dots = bins.map((b, i) => `<g class="cal__pt">
+      <circle class="cal__dot" cx="${calX(b.predicted)}" cy="${calY(b.actual)}" r="5"/>
+      <circle class="cal__hit" cx="${calX(b.predicted)}" cy="${calY(b.actual)}" r="14" tabindex="0" data-i="${i}"
+        aria-label="模型說 ${band(b)}，平均 ${pct(b.predicted)}；熱門實際贏 ${pct(b.actual)}，${b.n} 場"/>
+    </g>`).join("");
+  const rows = bins.map((b) => `<tr><td>${band(b)}<span class="sub">平均 ${pct(b.predicted)}</span></td>
+      <td>${pct(b.actual)}</td><td>${b.n}</td></tr>`).join("");
+  return `<figure class="cal">
+      <svg viewBox="0 0 ${CAL.w} ${CAL.h}" role="img" aria-labelledby="cal-desc">
+        <desc id="cal-desc">校準圖：橫軸是模型說熱門贏的機率，縱軸是熱門實際贏的比例，點落在斜線上代表說幾成就真的贏幾成。</desc>
+        <g class="cal__grid">${grid}</g>
+        <g class="cal__axis">${ticks}<text x="${(CAL.l + CAL.w - CAL.r) / 2}" y="${CAL.h - 2}" text-anchor="middle">模型說熱門會贏</text></g>
+        <line class="cal__ref" x1="${calX(0.5)}" y1="${calY(0.5)}" x2="${calX(1)}" y2="${calY(1)}"/>
+        <line class="cal__ref" x1="${CAL.l + 8}" y1="${CAL.t + 10}" x2="${CAL.l + 26}" y2="${CAL.t + 10}"/>
+        <text x="${CAL.l + 32}" y="${CAL.t + 14}">斜線：說幾成就贏幾成</text>
+        ${dots}
+      </svg>
+      <div class="cal__tip" hidden></div>
+    </figure>
+    <table class="data-table">
+      <thead><tr><th scope="col">模型說</th><th scope="col">熱門實際贏</th><th scope="col">場數</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function bindCalibration(bins) {
+  const fig = $("#view-scorecard .cal");
+  if (!fig) return;
+  const tip = $(".cal__tip", fig), svg = $("svg", fig);
+  const showTip = (el) => {
+    const b = bins[Number(el.dataset.i)], box = svg.getBoundingClientRect(), k = box.width / CAL.w;
+    tip.replaceChildren();
+    const strong = document.createElement("b");
+    strong.textContent = `熱門贏 ${pct(b.actual)}`;
+    tip.append(strong, document.createTextNode(` · 模型說平均 ${pct(b.predicted)}（${band(b)}）· ${b.n} 場`));
+    tip.hidden = false;
+    const x = Number(el.getAttribute("cx")) * k, y = Number(el.getAttribute("cy")) * k;
+    tip.style.left = `${Math.min(Math.max(x - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth)}px`;
+    const above = y - tip.offsetHeight - 12;              // no room above the dot: below it, never on it
+    tip.style.top = `${above >= 0 ? above : y + 14}px`;
+  };
+  for (const el of fig.querySelectorAll(".cal__hit")) {
+    el.addEventListener("pointerenter", () => showTip(el));
+    el.addEventListener("focus", () => showTip(el));
+    el.addEventListener("pointerleave", () => { tip.hidden = true; });
+    el.addEventListener("blur", () => { tip.hidden = true; });
+  }
+}
+
+function versionRow(name, v) {
+  return `<tr><td>${name}</td><td>${v.n ? `${v.correct}/${v.n}` : "—"}</td><td>${v.n ? v.log_loss.toFixed(3) : "—"}</td></tr>`;
+}
+
+function renderScorecard() {
+  const s = DATA.scorecard, view = $("#view-scorecard");
+  const head = (sub) => `<header class="view__head"><h1 class="view__title">Scorecard</h1>
+      <p class="view__sub">${sub}</p></header>`;
+  if (!s) {
+    view.innerHTML = `${head("模型 vs 賭盤")}<p class="empty">成績單下次每日更新時產生。</p>`;
+    return;
+  }
+  const all = s.model_all || {}, mm = (s.model_vs_market || {}).model || {}, mk = (s.model_vs_market || {}).market || {};
+  const led = s.ledger || {}, clv = s.clv || {}, ver = s.versions || {};
+  const few = !all.n ? `<p class="list-note">第一批比賽打完、隔天早上更新後才有成績。</p>`
+    : all.n < 100 ? `<p class="list-note">樣本還很少（${all.n} 場），先看看就好；一兩百場以後這些數字才比較穩。</p>` : "";
+  const books = (s.books || []).map((b) => `<tr><td>${esc(b.book)}</td><td>${(b.vig * 100).toFixed(1)}%</td><td>${b.games}</td></tr>`).join("");
+  view.innerHTML = `
+    ${head(`模型 vs 賭盤 · ${esc(s.label)} · ${md(s.since)} 起 · ${all.n || 0} 場有結果`)}
+    ${few}
+    <dl class="strip strip--4">
+      ${scoreCell("猜中 · 模型", all.n ? `${all.correct}/${all.n}` : "—", mk.n ? `賭盤熱門 ${mk.correct}/${mk.n}` : "還沒有結果")}
+      ${scoreCell("Log loss · 越低越準", mm.n ? mm.log_loss.toFixed(3) : "—", mm.n ? `賭盤 ${mk.log_loss.toFixed(3)} · 同樣 ${mm.n} 場` : "還沒有結果")}
+      ${scoreCell("模擬帳本", led.n ? `<span class="${led.profit >= 0 ? "pos" : "neg"}">${units(led.profit)}</span>` : "—",
+                  led.n ? `稅後 ${units(led.profit_after_tax)} · ${led.n} 注 ${led.wins} 勝` : "還沒有結算的注")}
+      ${scoreCell("收盤線價值", clv.n ? signed(clv.mean) : "—", clv.n ? `${clv.n} 注裡 ${clv.beat} 注賠率比收盤好` : "還沒有收盤賠率")}
+    </dl>
+    <div class="cols-2 scorecard">
+      <section aria-labelledby="h-cal">
+        <h2 class="section-label" id="h-cal">校準</h2>
+        <p class="list-note">模型說熱門有七成機會贏的比賽，熱門真的贏七成左右，點就會落在斜線上。</p>
+        ${calibration(s.calibration || [])}
+      </section>
+      <div>
+        <section aria-labelledby="h-ver">
+          <h2 class="section-label" id="h-ver">早上版 vs 賽前版</h2>
+          <p class="list-note">開賽前傷兵報告有變動、重算過勝率的比賽，各自跟同一時間的賭盤比。</p>
+          ${ver.pregame && ver.pregame.n ? `<table class="data-table">
+            <thead><tr><th scope="col">同樣這幾場</th><th scope="col">猜中</th><th scope="col">Log loss</th></tr></thead>
+            <tbody>${versionRow("賽前版（最後一次重算）", ver.pregame)}${versionRow("早上版", ver.morning_same_games || {})}${versionRow("收盤賭盤", ver.closing_market || {})}</tbody>
+          </table>` : `<p class="empty">還沒有賽前重算過、而且打完的比賽。</p>`}
+        </section>
+        <section aria-labelledby="h-books">
+          <h2 class="section-label" id="h-books">各家抽成</h2>
+          <p class="list-note">勝負盤兩邊的隱含機率加起來超過 100% 的部分，本季平均；越低越划算。</p>
+          ${books ? `<table class="data-table">
+            <thead><tr><th scope="col">麻州的書商</th><th scope="col">平均抽成</th><th scope="col">場數</th></tr></thead>
+            <tbody>${books}</tbody>
+          </table>` : `<p class="empty">還沒有賠率</p>`}
+        </section>
+        ${(s.previous || []).map(previous).join("")}
+      </div>
+    </div>`;
+  bindCalibration(s.calibration || []);
+}
+
+const scoreCell = (dt, dd, sub) => `<div><dt>${dt}</dt><dd>${dd}<span class="sub">${sub}</span></dd></div>`;
+
 /* ---------- layout: 自動 / 電腦 / 手機 (the <head> script applied the saved choice before first paint) ---------- */
 
 const LAYOUT_KEY = "fof-layout";
@@ -257,7 +377,7 @@ function chooseLayout(mode) {
 
 const renderFactViews = () => { renderFacts("standings"); renderFacts("fluke"); };
 const RENDER = { today: renderToday, standings: () => renderFacts("standings"), fluke: () => renderFacts("fluke"),
-                 lastnight: renderLastNight };
+                 lastnight: renderLastNight, scorecard: renderScorecard };
 
 function show(tab, { focus = false } = {}) {
   state.tab = TABS.includes(tab) ? tab : "today";
@@ -313,7 +433,9 @@ async function init() {
   bind();
   try {
     const [meta, today, standings, lastnight] = await Promise.all(["meta", "today", "standings", "lastnight"].map(load));
-    Object.assign(DATA, { meta, today, standings, lastnight });
+    // the scorecard came later: until the daily run first writes it, its tab says so instead of failing the page
+    const scorecard = await load("scorecard").catch(() => null);
+    Object.assign(DATA, { meta, today, standings, lastnight, scorecard });
   } catch (err) {
     $("#view-today").innerHTML = `<p class="empty">資料載入失敗（${esc(err.message)}），晚點再重新整理看看。</p>`;
     return;
