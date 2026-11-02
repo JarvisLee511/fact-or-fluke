@@ -5,7 +5,10 @@ each team's rating is its players' impact weighted by expected minutes, under ea
 fof.model.minutes; win probabilities come from logistic models fitted only on earlier seasons. The market
 line (odds_history, internal only) is compared on the games that have one.
 
-    python scripts/backtest.py [--every 7] [--lam 4000] [--decay 0.7] [--no-box]
+    python scripts/backtest.py [--every 1] [--lam 4000] [--decay 0.7] [--no-box]
+
+Ratings are refitted every game day, as the daily run does (the results of record); --every 7 is the quicker
+setting the tuning used.
 
 Writes data/backtest/rows.pkl (one row per game, local only) and prints the season-by-season table.
 """
@@ -92,7 +95,7 @@ def ll(p, y):
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--every", type=int, default=7, help="refit the ratings every N days")
+    ap.add_argument("--every", type=int, default=1, help="refit the ratings every N days")
     ap.add_argument("--lam", type=float, default=impact.LAM)
     ap.add_argument("--decay", type=float, default=impact.DECAY)
     ap.add_argument("--no-box", dest="box", action="store_false", help="priors of 0 instead of box score lines")

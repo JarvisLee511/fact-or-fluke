@@ -1,6 +1,6 @@
-"""Refit the v2 win model (once a season, after scripts/backtest.py has rewritten data/backtest/rows.pkl):
-the logistic weights on every completed season's backtest rows, and the play rates behind the expected
-minutes. Writes src/fof/model/player_v2.json, which the daily run reads.
+"""Refit the v2 win model once a season, after scripts/backtest.py (daily refits) has rewritten
+data/backtest/rows.pkl: the logistic weights on every completed season's backtest rows, and the play rates
+behind the expected minutes. Writes src/fof/model/player_v2.json, which the daily run reads.
 
     python scripts/fit_player_model.py
 """
