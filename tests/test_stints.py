@@ -12,12 +12,12 @@ def ev(period, clock, team, person, kind, desc="", is_fg=False, result="", score
     return stints.act(("g", 0, period, f"PT{clock}S", team, person, kind, sub_type, desc, is_fg, result, *score))
 
 
-def first_game(sub_desc="SUB: Williams FOR Twelve"):
+def first_game(sub_desc="SUB: Williams FOR Twelve", miss_desc=""):
     return [
         ev(1, "12M00.00", 0, 0, "period"),
         ev(1, "11M00.00", H, 11, "Made Shot", is_fg=True, result="Made", score=(2, 0)),
         ev(1, "10M00.00", H, 12, "Substitution", sub_desc),
-        ev(1, "09M00.00", H, 17, "Missed Shot", is_fg=True, result="Missed"),     # the Williams who came in
+        ev(1, "09M00.00", H, 17, "Missed Shot", miss_desc, is_fg=True, result="Missed"),    # the one who came in
         ev(1, "08M59.00", A, 21, "Rebound"),
         ev(1, "08M00.00", A, 22, "Made Shot", is_fg=True, result="Made", score=(2, 3)),
         ev(1, "00M00.00", 0, 0, "period"),
@@ -43,6 +43,31 @@ def test_a_shared_family_name_goes_to_whoever_shows_up_and_quiet_starters_carry_
 def test_teammates_sharing_a_family_name_are_told_apart_by_the_first_name_prefix():
     out, check = stints.game(H, A, first_game("SUB: Jay. Williams FOR Twelve"), PLAYERS, (4, 3))
     assert out[1]["home"] == [11, 13, 14, 15, 17] and check["ok"]
+
+
+def test_old_play_by_play_spellings_find_the_box_score_player():
+    def came_in(sub_desc, players, miss_desc=""):
+        out, check = stints.game(H, A, first_game(sub_desc, miss_desc), players, (4, 3))
+        return out[1]["home"] == [11, 13, 14, 15, 17] and check["ok"]
+
+    one_williams = {p: v for p, v in PLAYERS.items() if p != 16}
+    assert came_in("SUB: Williams FOR Twelve", one_williams | {17: (H, False, 1320, "Williams III", "Jay Williams III")})
+    assert came_in("SUB: Williams Jr. FOR Twelve", one_williams)
+    twins = PLAYERS | {16: (H, False, 0, "Morris Sr.", "Marcus Morris Sr."),
+                       17: (H, False, 1320, "Morris", "Markieff Morris")}
+    assert came_in("SUB: Mark Morris FOR Twelve", twins)
+    assert came_in("SUB: Kanter FOR Twelve", PLAYERS, "MISS Kanter 25' 3PT Jump Shot")
+    # an exact name beats a suffix-less one even when the other shows up first (Josh Jackson, Jaren Jackson Jr.)
+    jacksons = PLAYERS | {16: (H, False, 0, "Jackson", "Josh Jackson"),
+                          17: (H, False, 1320, "Jackson Jr.", "Jaren Jackson Jr.")}
+    out, _ = stints.game(H, A, first_game("SUB: Jackson FOR Twelve"), jacksons, (4, 3))
+    assert out[1]["home"] == [11, 13, 14, 15, 16]
+    # and a family name beats a teammate's first name (Jarrett Allen, Allen Crabbe), which only one-name
+    # players need ("Hansen" for Hansen Yang)
+    allens = PLAYERS | {16: (H, False, 0, "Allen", "Jarrett Allen"), 17: (H, False, 1320, "Crabbe", "Allen Crabbe")}
+    out, _ = stints.game(H, A, first_game("SUB: Allen FOR Twelve"), allens, (4, 3))
+    assert out[1]["home"] == [11, 13, 14, 15, 16]
+    assert came_in("SUB: Hansen FOR Twelve", PLAYERS | {17: (H, False, 1320, "Yang", "Hansen Yang")})
 
 
 def test_an_unknown_incoming_name_flags_the_game():

@@ -41,6 +41,7 @@ def build(seasons: set[str] | None = None) -> dict[str, int]:
             add(table, batch)
     counts.update(stints.build(con, seasons))
     if seasons is None:     # past seasons only, for the backtest; the daily run has no use for it
+        con.execute("delete from odds_history")         # rebuilt whole, so a changed match leaves nothing stale
         add("odds_history", history_odds.rows(con))
     for season in _wanted("shots"):
         for f in raw.files("shots", season):

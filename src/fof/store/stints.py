@@ -6,7 +6,10 @@ player can go a whole quarter without an event of his own. So:
 - the 1st period starts with the box score starters;
 - a later period starts with the players seen before they come in (or who go out first), topped up from the
   previous period's closing five, then by minutes played;
-- a family name two teammates share goes to the one not on the floor, then to the one who shows up first.
+- a family name two teammates share goes to the one not on the floor, then to the one who shows up first;
+- the box score has today's names but old play-by-play the names of the day, so an incoming name is matched
+  exactly, then without a Jr. / III suffix ("Butler" = Jimmy Butler III), then by first-name prefix ("Mark
+  Morris" = Markieff Morris), then to the teammate whose own events are spelled that way ("Kanter" = Enes Freedom).
 Every game is checked against its box score: five a side in every stint, each player's minutes within a
 minute of his box score, and the play-by-play score ending on the final score. Games that fail stay in the
 table, flagged in stint_checks, so the player model can leave them out.
@@ -28,6 +31,7 @@ TOLERANCE_S = 60            # reconstructed minutes may differ from the box scor
 NOT_ON_FLOOR = {"Timeout", "Instant Replay", "Ejection", "period", ""}   # events that do not prove who is playing
 PBP_COLS = ("game_id, action_number, period, clock, team_id, person_id, action_type, sub_type, description, "
             "is_fg, shot_result, score_home, score_away")
+SUFFIXES = {"Jr.", "Jr", "Sr.", "Sr", "II", "III", "IV"}
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +62,12 @@ def act(row: tuple) -> Act:
 def norm(name: str) -> str:
     s = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower()
     return "".join(ch for ch in s if ch.isalnum())
+
+
+def bare(name: str) -> str:
+    """'Butler III' -> 'Butler', 'Boston Jr.' -> 'Boston'."""
+    head, _, tail = name.rpartition(" ")
+    return head if head and tail in SUFFIXES else name
 
 
 def clock_left(clock: str) -> float | None:
@@ -100,13 +110,19 @@ def game(home: int, away: int, acts: list[Act], players: dict[int, tuple[int, bo
     acts = [t[3] for t in sorted(timed, key=lambda t: t[:3])]
     teams = (home, away)
     names: dict[int, dict[str, list[int]]] = {t: defaultdict(list) for t in teams}
+    bare_names: dict[int, dict[str, list[int]]] = {t: defaultdict(list) for t in teams}
+    first_names: dict[int, dict[str, list[int]]] = {t: defaultdict(list) for t in teams}
     first: dict[int, str] = {}
     for pid, (team, _, _, family, full) in players.items():
         first[pid] = norm(full[: len(full) - len(family)] if family and full.endswith(family) else full.split(" ")[0])
         if team in names:
             names[team][norm(family)].append(pid)
             names[team][norm(full)].append(pid)
-            names[team][first[pid]].append(pid)          # some players go by one name ("Hansen")
+            bare_names[team][norm(bare(family))].append(pid)
+            bare_names[team][norm(bare(full))].append(pid)
+            # some players go by one name ("Hansen"), but a family name wins: "Allen" is Jarrett Allen, not
+            # his teammate Allen Crabbe
+            first_names[team][first[pid]].append(pid)
     seen: dict[int, list[int]] = defaultdict(list)
     for i, a in enumerate(acts):
         if a.person:
@@ -117,14 +133,23 @@ def game(home: int, away: int, acts: list[Act], players: dict[int, tuple[int, bo
                 names[a.team][spelled].append(a.person)
 
     def lookup(team: int, name: str) -> list[int]:
-        found = names.get(team, {}).get(norm(name))
-        if found:
-            return list(dict.fromkeys(found))
-        prefix, dot, family = name.partition(". ")      # teammates who share a family name: "L. James", "Jay. Williams"
-        if dot and family:
-            return [p for p in dict.fromkeys(names.get(team, {}).get(norm(family), []))
-                    if first[p].startswith(norm(prefix))]
-        return []
+        for table, spelling in ((names, name), (bare_names, bare(name)), (first_names, name)):
+            found = table.get(team, {}).get(norm(spelling))
+            if found:
+                return list(dict.fromkeys(found))
+        # teammates who share a family name: "L. James", "Jay. Williams"; the Morris twins: "Mark Morris"
+        prefix, dot, family = bare(name).partition(". ")
+        if not dot:
+            prefix, _, family = bare(name).partition(" ")
+        if prefix and family:
+            found = [p for p in dict.fromkeys(bare_names.get(team, {}).get(norm(family), []))
+                     if first[p].startswith(norm(prefix))]
+            if found:
+                return found
+        # a name since changed: the teammate whose own events are spelled that way ("MISS Kanter 25' 3PT ...")
+        return [p for p, v in players.items() if v[0] == team and name and any(
+            acts[k].kind != "Substitution" and acts[k].desc.removeprefix("MISS ").startswith(name + " ")
+            for k in seen[p])]
 
     def resolve(i: int, on: set[int]) -> int | None:
         a = acts[i]
