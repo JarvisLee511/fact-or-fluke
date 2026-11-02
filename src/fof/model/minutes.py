@@ -41,7 +41,7 @@ NOT_ABSENT = ("G League",)   # listed for a roster move, not an injury or absenc
 class Tracker:
     """What the box scores so far say about each player, one team-game at a time: his minutes when he plays
     (recent games weighted more), the same by role (starting or off the bench), how many of his team's games
-    in a row he has missed, his last team, and each team's recent rosters."""
+    in a row he has missed, his last team, and each team's recent rosters and starting fives."""
 
     def __init__(self) -> None:
         self.ewma: dict[int, float] = {}
@@ -49,6 +49,7 @@ class Tracker:
         self.streak: dict[tuple[int, int], int] = {}
         self.last_team: dict[int, int] = {}
         self.roster: dict[int, list[set[int]]] = defaultdict(list)
+        self.starts: dict[int, list[set[int]]] = defaultdict(list)
 
     def recent(self, tid: int) -> set[int]:
         return set().union(*self.roster[tid][-RECENT:]) if self.roster[tid] else set()
@@ -62,6 +63,14 @@ class Tracker:
 
     def minutes(self, p: int) -> float:
         return self.ewma.get(p, ROOKIE_MIN)
+
+    def starters(self, tid: int) -> set[int]:
+        """The team's usual starting five: most starts in its last RECENT games, then most minutes."""
+        count: dict[int, int] = defaultdict(int)
+        for five in self.starts[tid][-RECENT:]:
+            for p in five:
+                count[p] += 1
+        return set(sorted(count, key=lambda p: (-count[p], -self.minutes(p), p))[:5])
 
     def add(self, tid: int, box: list[tuple[int, int, bool]]) -> None:
         on = {p for p, s, _ in box if s > 0}
@@ -77,6 +86,7 @@ class Tracker:
         for p in on:
             self.last_team[p] = tid
         self.roster[tid].append(on)
+        self.starts[tid].append({p for p, s, st in box if st and s > 0})
 
 
 def _scaled(m: dict[int, float]) -> dict[int, float]:
@@ -145,15 +155,14 @@ def expected(games: list[tuple], rates: dict[int, float], status: dict | None = 
     return out
 
 
-def tonight(t: Tracker, tid: int, rates: dict[int, float], report_rates: dict, roster: set[int] | None = None,
-            listed: dict[int, tuple[str, str]] | None = None) -> dict[str, dict[int, float]]:
-    """A team's next game, from what `t` has seen so far: report-mode minutes, and the same with everyone
-    listed for an injury or absence playing as often as a healthy player (full: what the absences cost).
-
-    `roster` (the league's player index: who is on the team today) drops players who have left since their
-    last game here and adds the ones who have joined, whose run of missed games comes from their last team.
-    `listed` is {player: (status, reason)} from today's report; None (no report yet) keeps the morning
-    numbers, and then the absences cost nothing."""
+def lineup(t: Tracker, tid: int, roster: set[int] | None = None, listed: dict | None = None) -> dict[int, dict]:
+    """Everyone who might play in a team's next game, from what `t` has seen so far: {player: min (his minutes
+    when he plays), k (his run of missed games, on the team it counts for), cand (in the morning roster),
+    played (has played a game)}. The morning roster is who played for the team lately; `roster` (the league's
+    player index: who is on the team today) drops players who have left since their last game here and adds
+    the ones who have joined, whose run of missed games comes from their last team. Players on `listed`
+    (today's report) and the rest of `roster` are included outside the morning roster, so that a later report
+    can bring them in."""
     mine = t.mine(tid)
     team = {p: tid for p in mine}
     if roster is not None:
@@ -163,19 +172,42 @@ def tonight(t: Tracker, tid: int, rates: dict[int, float], report_rates: dict, r
             last = t.last_team.get(p)
             if p not in team and p in t.ewma and last is not None and last != tid:
                 team[p] = last
+    out = {p: dict(min=t.minutes(p), k=t.missed(p, team[p]), cand=True, played=p in t.ewma) for p in team}
+    for p in list(listed or {}) + sorted(roster or ()):
+        if p not in out:
+            out[p] = dict(min=t.minutes(p), k=t.missed(p, tid), cand=False, played=p in t.ewma)
+    return out
+
+
+def project(players: dict[int, dict], rates: dict[int, float], report_rates: dict,
+            listed: dict[int, tuple[str, str]] | None = None) -> dict[str, dict[int, float]]:
+    """Report-mode minutes for a team's next game from its lineup(), and the same with everyone listed for an
+    injury or absence playing as often as a healthy player (full: what the absences cost). `listed` is
+    {player: (status, reason)} from the latest report; None (no report yet) keeps the morning numbers, and then
+    the absences cost nothing."""
     if listed is None or not report_rates or not report_rates["status"]:
-        m = _scaled({p: t.minutes(p) * rates.get(t.missed(p, team[p]), 0.0) for p in team})
+        m = _scaled({p: v["min"] * rates.get(v["k"], 0.0) for p, v in players.items() if v["cand"]})
         return {"report": m, "full": m}
-    status = {p: st for p, (st, _) in listed.items()}
-    absent = {p for p, (_, why) in listed.items() if not why.startswith(NOT_ABSENT) and p in t.ewma}
     healthy = report_rates["unlisted"].get(0, rates.get(0, 0.0))
-    players = set(team) | set(listed)
-    report = {p: t.minutes(p) * _chance(t, p, team.get(p, tid), rates, status, report_rates) for p in players}
-    full = {p: t.minutes(p) * healthy if p in absent else v for p, v in report.items()}
+    report, full = {}, {}
+    for p, v in players.items():
+        if p in listed:
+            st, why = listed[p]
+            report[p] = v["min"] * report_rates["status"].get(st, rates.get(v["k"], 0.0))
+            back = v["played"] and not why.startswith(NOT_ABSENT)
+            full[p] = v["min"] * healthy if back else report[p]
+        elif v["cand"]:
+            report[p] = full[p] = v["min"] * report_rates["unlisted"].get(v["k"], rates.get(v["k"], 0.0))
     return {"report": _scaled(report), "full": _scaled(full)}
 
 
-def _team_status(rows: list[tuple[str, str, str, str]], code: str, idx: dict[str, int]) -> dict | None:
+def tonight(t: Tracker, tid: int, rates: dict[int, float], report_rates: dict, roster: set[int] | None = None,
+            listed: dict[int, tuple[str, str]] | None = None) -> dict[str, dict[int, float]]:
+    """project(lineup(...)): a team's next game, straight from the tracker."""
+    return project(lineup(t, tid, roster, listed), rates, report_rates, listed)
+
+
+def team_status(rows: list[tuple[str, str, str, str]], code: str, idx: dict[str, int]) -> dict | None:
     """{player_id: (status, reason)} for one team's lines on a report; None if the team has not filed."""
     mine = [(n, st, why) for team, n, st, why in rows if team == code]
     if not mine or any(st == "Not Yet Submitted" for _, st, _ in mine):
@@ -223,10 +255,27 @@ def report_status(con: duckdb.DuckDBPyConnection) -> dict[tuple[str, int], dict[
             continue
         rows = lines[(max(before), *key)]
         for tid, code in ((home, hc), (away, ac)):
-            found = _team_status(rows, code, names.get((season, tid), {}))
+            found = team_status(rows, code, names.get((season, tid), {}))
             if found is not None:
                 out[(gid, tid)] = {p: st for p, (st, _) in found.items()}
     return out
+
+
+def name_index(con: duckdb.DuckDBPyConnection, season: str, rosters: dict[int, set[int]] | None) -> dict[int, dict]:
+    """{team_id: {normalised name: player}} for matching report names: today's rosters first, then the players
+    who have played for the team this season."""
+    names: dict[int, dict[str, int]] = defaultdict(dict)
+    team_of = {p: tid for tid, members in (rosters or {}).items() for p in members}
+    for pid, name in con.execute("select player_id, name from players").fetchall():
+        if pid in team_of:
+            names[team_of[pid]].setdefault(norm(name), pid)
+            names[team_of[pid]].setdefault(norm(bare(name)), pid)
+    for tid, pid, name in con.execute("""
+            select distinct pg.team_id, pg.player_id, pg.name from player_games pg join games g using (game_id)
+            where g.season = ?""", [season]).fetchall():
+        names[tid].setdefault(norm(name), pid)
+        names[tid].setdefault(norm(bare(name)), pid)
+    return names
 
 
 def today_status(con: duckdb.DuckDBPyConnection, games: list[dict], as_of: datetime,
@@ -238,17 +287,7 @@ def today_status(con: duckdb.DuckDBPyConnection, games: list[dict], as_of: datet
     if not games:
         return {}, {}
     reports, lines = _reports(con, min(g["game_date"] for g in games))
-    names: dict[int, dict[str, int]] = defaultdict(dict)
-    team_of = {p: tid for tid, members in (rosters or {}).items() for p in members}
-    for pid, name in con.execute("select player_id, name from players").fetchall():
-        if pid in team_of:
-            names[team_of[pid]].setdefault(norm(name), pid)
-            names[team_of[pid]].setdefault(norm(bare(name)), pid)
-    for tid, pid, name in con.execute("""
-            select distinct pg.team_id, pg.player_id, pg.name from player_games pg join games g using (game_id)
-            where g.season = ?""", [games[0]["season"]]).fetchall():
-        names[tid].setdefault(norm(name), pid)
-        names[tid].setdefault(norm(bare(name)), pid)
+    names = name_index(con, games[0]["season"], rosters)
     cutoff = as_of.astimezone(timezone.utc).replace(tzinfo=None)
     out, stamps = {}, {}
     for g in games:
@@ -259,7 +298,7 @@ def today_status(con: duckdb.DuckDBPyConnection, games: list[dict], as_of: datet
         at = max(before)
         rows = lines[(at, *key)]
         for side in ("home", "away"):
-            found = _team_status(rows, g[f"{side}_code"], names.get(g[f"{side}_id"], {}))
+            found = team_status(rows, g[f"{side}_code"], names.get(g[f"{side}_id"], {}))
             if found is not None:
                 out[(g["game_id"], g[f"{side}_id"])] = found
                 stamps[g["game_id"]] = at.replace(tzinfo=timezone.utc).astimezone(ET).isoformat()

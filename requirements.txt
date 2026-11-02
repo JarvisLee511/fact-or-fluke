@@ -2,5 +2,6 @@ duckdb
 pandas
 pdfplumber
 pytz
+scipy
 tzdata
 pytest

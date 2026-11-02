@@ -46,18 +46,23 @@ def prediction_lines(p: dict) -> list[str]:
     why = reasons(p)
     if why:
         lines.append(f"  原因：{why}")
+    return lines + [f"  {value_line(p)}"]
+
+
+def value_line(p: dict) -> str:
+    """The paper-bet verdict for a prediction: a value pick, a disagreement too big to trust, the favourite's
+    best price, or no odds yet."""
+    fav = p["home"] if p["p_home"] >= 0.5 else p["away"]
     best, ev, pick, suspect = p.get("best"), p.get("ev"), p.get("pick"), p.get("suspect")
     if pick:
         price, book = best[pick]
-        lines.append(f"  ★ 划算：{pick} {price:.2f} @{book}（期望值 {ev[pick]:+.1%}）")
-    elif suspect:
-        lines.append(f"  模型和賭盤差太多（{suspect} 期望值 {ev[suspect]:+.1%}），多半是模型還不知道的消息，例如傷兵，這注不算")
-    elif best and best.get(fav) and best[fav][0]:
+        return f"★ 划算：{pick} {price:.2f} @{book}（期望值 {ev[pick]:+.1%}）"
+    if suspect:
+        return f"模型和賭盤差太多（{suspect} 期望值 {ev[suspect]:+.1%}），多半是模型還不知道的消息，例如傷兵，這注不算"
+    if best and best.get(fav) and best[fav][0]:
         price, book = best[fav]
-        lines.append(f"  沒有划算的注（{fav} 最佳 {price:.2f} @{book}，期望值 {ev[fav]:+.1%}）")
-    else:
-        lines.append("  還沒有賠率")
-    return lines
+        return f"沒有划算的注（{fav} 最佳 {price:.2f} @{book}，期望值 {ev[fav]:+.1%}）"
+    return "還沒有賠率"
 
 
 def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_total: int, night: dict,

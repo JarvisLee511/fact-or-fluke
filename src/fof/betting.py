@@ -56,6 +56,30 @@ def market_view(con: duckdb.DuckDBPyConnection, home: str, away: str, game_date,
             "books": len(books)}
 
 
+def view_from_snapshot(games: list[dict], home: str, away: str, tip_utc: datetime, taken_at: str) -> dict | None:
+    """market_view from an Odds API response instead of the odds table (the cloud watch has no database): the
+    game whose teams match and whose listed start is within 6 hours of the official tip."""
+    for g in games:
+        if (TEAM_TRICODE.get(g["home_team"]), TEAM_TRICODE.get(g["away_team"])) != (home, away):
+            continue
+        start = datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00"))
+        if abs((start - tip_utc).total_seconds()) > 6 * 3600:
+            continue
+        books: dict[str, dict[str, float]] = {}
+        for b in g.get("bookmakers", []):
+            for m in b.get("markets", []):
+                if m["key"] == "h2h":
+                    books[b["key"]] = {TEAM_TRICODE.get(o["name"], o["name"]): float(o["price"]) for o in m["outcomes"]}
+        fair = [1 / q[home] / (1 / q[home] + 1 / q[away]) for q in books.values() if home in q and away in q]
+        best = {}
+        for side in (home, away):
+            price, book = max(((q[side], b) for b, q in books.items() if side in q), default=(None, None))
+            best[side] = (price, BOOK_TITLES.get(book, book) if book else None)
+        return {"taken_at": taken_at, "market_p_home": sum(fair) / len(fair) if fair else None, "best": best,
+                "books": len(books)}
+    return None
+
+
 def value(p_home: float, mv: dict, home: str, away: str) -> dict:
     """Expected value per side at the best price; pick = the side worth a paper bet (or None).
     suspect = a side that clears the edge only because the model disagrees too much with the market."""

@@ -30,6 +30,11 @@ def team_strength(r: impact.Ratings, mins: dict[int, float]) -> float:
     return sum(m / 48.0 * (r.o.get(p, r.new_o) + r.d.get(p, r.new_d)) for p, m in mins.items())
 
 
+def strength(rating: dict[int, float], mins: dict[int, float]) -> float:
+    """team_strength from each player's rating (offence + defence), as the watch table carries them."""
+    return sum(m / 48.0 * rating[p] for p, m in mins.items())
+
+
 def load_params(path: Path = PARAMS) -> dict:
     p = json.loads(path.read_text(encoding="utf-8"))
     p["rates"] = {int(k): v for k, v in p["rates"].items()}
@@ -53,7 +58,9 @@ def predict(con: duckdb.DuckDBPyConnection, day: date, games: list[dict], now: d
             params: dict | None = None, use_rosters: bool = True) -> dict[str, dict]:
     """`games`: baseline.feature_rows rows for games on `day` not played yet. {game_id: home win probability,
     features, why (each part's share: the probability with it minus without it), both teams' strength with
-    the expected minutes and with every absent player back, and when the injury report used came out}.
+    the expected minutes and with every absent player back, when the injury report used came out, and the
+    table the evening watch recomputes from (each side's players: minutes, run of missed games, rating, name,
+    usual starter; the report statuses used; names for matching the next reports)}.
 
     The parts: players (strength with everyone back), absent (what the absences cost), elo, home and
     schedule (back-to-backs, rest days, 3 games in 4 nights)."""
@@ -72,14 +79,25 @@ def predict(con: duckdb.DuckDBPyConnection, day: date, games: list[dict], now: d
         t.add(tid, box)
     teams = rosters(con) if use_rosters else {}
     listed, report_at = minutes.today_status(con, games, now, teams)
+    names = minutes.name_index(con, season, teams)
+    shown = dict(con.execute("""select player_id, arg_max(pg.name, g.game_date) from player_games pg join games g
+                                using (game_id) group by all""").fetchall())
+    shown.update(con.execute("select player_id, name from players").fetchall())
     out = {}
     for g in games:
-        now_s, full_s = {}, {}
+        now_s, full_s, table = {}, {}, {}
         for side in ("home", "away"):
             tid = g[f"{side}_id"]
-            m = minutes.tonight(t, tid, params["rates"], params["report_rates"], teams.get(tid) or None,
-                                listed.get((g["game_id"], tid)))
-            now_s[side], full_s[side] = team_strength(r, m["report"]), team_strength(r, m["full"])
+            lst = listed.get((g["game_id"], tid))
+            players = minutes.lineup(t, tid, teams.get(tid) or None, lst)
+            m = minutes.project(players, params["rates"], params["report_rates"], lst)
+            rating = {p: r.o.get(p, r.new_o) + r.d.get(p, r.new_d) for p in players}
+            now_s[side], full_s[side] = strength(rating, m["report"]), strength(rating, m["full"])
+            starters = t.starters(tid)
+            table[side] = {"id": tid, "code": g[f"{side}_code"], "listed": lst,
+                           "players": {p: {**v, "rating": rating[p], "name": shown.get(p, str(p)),
+                                           "starter": p in starters} for p, v in players.items()},
+                           "names": {k: p for k, p in names.get(tid, {}).items() if p in players}}
         x_now = now_s["home"] - now_s["away"]
         x_full = full_s["home"] - full_s["away"]
         x = list(g["x"]) + [x_now]
@@ -91,5 +109,5 @@ def predict(con: duckdb.DuckDBPyConnection, day: date, games: list[dict], now: d
                "schedule": p - _p(w, x[:2] + [0.0, 0.0, 0.0] + x[5:])}
         out[g["game_id"]] = dict(p_home=p, features=dict(zip(FEATURES, x)), why=why,
                                  strength=[now_s["home"], now_s["away"]], healthy=[full_s["home"], full_s["away"]],
-                                 report_at=report_at.get(g["game_id"]))
+                                 report_at=report_at.get(g["game_id"]), table=table)
     return out

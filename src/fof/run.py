@@ -4,7 +4,8 @@ collect  refresh the schedule, fetch last night's box scores and play-by-play, c
          tracking data is out; once it is (or at the noon cutoff, D5) fetch season-to-date dashboards,
          passes, shots, the injury report and an odds snapshot
 analyze  rebuild the DB, advance the fun fact standings, predict today's games with the v2 player model
-         (never after tip-off), append to the ledgers, email the digest, push the private repo
+         (never after tip-off), append to the ledgers, leave the evening watch its table (fof.watch), email
+         the digest, push the private repo
 Progress is checkpointed in data/state/<day>.json; a lock file stops two runs overlapping.
 """
 from __future__ import annotations
@@ -32,6 +33,7 @@ SITE_URL = "https://jarvislee511.github.io/fact-or-fluke/"
 CUTOFF = time(12, 0)
 GAME_PREFIXES = ("002", "004", "005", "006")
 STATE = DATA / "state"
+WATCH = ROOT / "private" / "watch"        # the evening watch's tables (fof.watch)
 GIT_AUTH = ["-c", "credential.helper=",
             "-c", 'credential.helper=!f(){ echo username=x-access-token; echo "password=$(gh auth token)"; };f']
 
@@ -126,7 +128,8 @@ def _git(args: list[str], repo=None) -> None:
             log.warning("git %s: %s", " ".join(args), (r.stderr or r.stdout).strip()[:300])
 
 
-def predict(con, day: date) -> list[dict]:
+def predict(con, day: date) -> tuple[list[dict], dict]:
+    """Ledger rows for today's games not started yet, and the evening watch's table (watch/<day>.json)."""
     cols = ["game_id", "season", "game_date", "tip_utc", "home_id", "away_id", "home_code", "away_code",
             "home_score", "away_score", "neutral", "status"]
     # Elo over the whole history, as in the backtest the v2 weights were fitted on
@@ -135,8 +138,9 @@ def predict(con, day: date) -> list[dict]:
     now = now_et()
     upcoming = [r for r in baseline.feature_rows(games) if r["game_date"] == day and r["status"] != 3
                 and r["tip_utc"].replace(tzinfo=timezone.utc) > now]
-    made = player.predict(con, day, upcoming, now)
-    out = []
+    params = player.load_params()
+    made = player.predict(con, day, upcoming, now, params)
+    out, table = [], []
     for r in upcoming:
         m, tip = made[r["game_id"]], r["tip_utc"].replace(tzinfo=timezone.utc)
         p = m["p_home"]
@@ -156,7 +160,12 @@ def predict(con, day: date) -> list[dict]:
             odds_taken_at=str(mv["taken_at"]) if mv else None, best=mv["best"] if mv else None,
             ev={k: round(v, 4) for k, v in val["ev"].items()} if val["ev"] else None, pick=val["pick"],
             suspect=val.get("suspect")))
-    return out
+        table.append(dict(game_id=r["game_id"], tip_utc=tip.isoformat(), home=r["home_code"], away=r["away_code"],
+                          x=list(r["x"]), p_home=p, teams=m["table"]))
+    watch = {"day": day.isoformat(), "made_at": now.isoformat(), "model": player.MODEL, "version": player.VERSION,
+             "weights": params["weights"], "rates": params["rates"], "report_rates": params["report_rates"],
+             "followed": publish.FOLLOWED, "games": table}
+    return out, watch
 
 
 def scorecard(con, day: date) -> dict:
@@ -198,8 +207,14 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     con = db.connect()
     changes = standings.update(con, season, day)
     night = publish.last_night(con, day, season)
-    made = predict(con, day)
+    made, watch = predict(con, day)
     n_pred = ledger.append(ledger.PREDICTIONS, made)
+    if watch["games"]:
+        path = WATCH / f"{day}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(watch, ensure_ascii=False, default=str), encoding="utf-8")
+        os.replace(tmp, path)
     n_bet = ledger.append(ledger.BETS, [dict(
         id=f"{p['id']}:bet", pred_id=p["id"], game_id=p["game_id"], game_date=p["game_date"],
         side="home" if p["pick"] == p["home"] else "away", team=p["pick"], price=p["best"][p["pick"]][0],
@@ -214,8 +229,9 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     subject, text, html_doc = digest.compose(day, preds, card, changes, listed_total, night, partial, SITE_URL)
     sent = email.send(subject, text, html_doc) if send else None
     if push:
-        _git(["add", "ledger"])
+        _git(["add", "ledger", *(["watch"] if WATCH.exists() else [])])
         _git(["commit", "-q", "-m", f"ledger {day}"])
+        _git(["pull", "-q", "--rebase"])          # the cloud workflows commit to this repo too
         _git(["push", "-q"])
         _git(["add", "site/data"], ROOT)
         _git(["commit", "-q", "-m", f"site data {day}"], ROOT)
