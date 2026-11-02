@@ -1,9 +1,10 @@
-"""'Record' fun facts: what happened last night, and how rare it is across every game in the database."""
+"""'Record' fun facts: what happened last night, and how rare it is across every game since SINCE."""
 from __future__ import annotations
 
 import duckdb
 
 SEASON_TYPES = ("Regular Season", "Playoffs", "PlayIn")
+SINCE = "2025-26"   # where the site's box scores began; the older seasons in the database are the model's history
 UNITS = {"pts": ("分", "points"), "reb": ("籃板", "rebounds"), "ast": ("助攻", "assists"),
          "stl": ("抄截", "steals"), "blk": ("阻攻", "blocks"), "fg3m": ("記三分", "threes")}
 SINGLE = {"pts": 40, "reb": 18, "ast": 14, "stl": 6, "blk": 6, "fg3m": 8}
@@ -14,7 +15,8 @@ PERFECT_MIN_FGA = 8
 
 def _count(con, where: str, params: list) -> int:
     return con.execute(f"""select count(*) from player_games pg join games g using (game_id)
-                           where g.season_type in {SEASON_TYPES} and {where}""", params).fetchone()[0]
+                           where g.season_type in {SEASON_TYPES} and g.season >= ? and {where}""",
+                       [SINCE, *params]).fetchone()[0]
 
 
 def _line(stats: tuple[str, ...], vals: tuple[int, ...]) -> tuple[str, str]:
@@ -26,7 +28,7 @@ def _line(stats: tuple[str, ...], vals: tuple[int, ...]) -> tuple[str, str]:
 
 
 def last_night(con: duckdb.DuckDBPyConnection, day, top: int = 5) -> list[dict]:
-    since = con.execute("""select min(g.season) from player_games pg join games g using (game_id)""").fetchone()[0]
+    since = SINCE
     lines = con.execute(f"""
         select pg.player_id, pg.name, pg.team_code, pg.game_id, pg.pts, pg.reb, pg.ast, pg.stl, pg.blk, pg.fg3m,
                pg.fgm, pg.fga
