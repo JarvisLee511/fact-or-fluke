@@ -105,3 +105,32 @@ def test_a_missing_table_is_reported_once_when_there_are_games(tmp_path, monkeyp
     assert "alert" in watch.run(tmp_path, NOW)
     assert watch.run(tmp_path, NOW)["skip"].startswith("no table") and len(sent) == 1
     assert watch.run(tmp_path, NOW.replace(hour=15))["skip"] == "before 16:00 ET"
+
+
+def test_the_odds_api_failing_still_sends_the_numbers(tmp_path, monkeypatch):
+    t = _ready(_table())
+    (tmp_path / "watch").mkdir()
+    (tmp_path / "watch" / "2026-11-02.json").write_text(json.dumps(t), encoding="utf-8")
+    monkeypatch.setattr(watch, "_report", lambda day: (_report(("BOS", "Star One", "Out")), "s1"))
+    sent = []
+    monkeypatch.setattr(watch.email, "send", lambda *a: sent.append(a) or "id1")
+    monkeypatch.setenv("ODDS_API_KEY", "k")
+
+    def refused(*a, **k):
+        raise watch.FetchError("https://api.the-odds-api.com/v4", 429)
+    monkeypatch.setattr(watch.odds, "snapshot", refused)
+    late = NOW + timedelta(minutes=100)                  # closing odds due too
+    res = watch.run(tmp_path, late)
+    assert res["pushes"] == 1 and len(sent) == 1 and "還沒有賠率" in sent[0][1]
+    state = json.loads((tmp_path / "watch" / "2026-11-02.state.json").read_text())
+    assert not state["games"]["g1"]["closed"]            # tried again next time
+
+
+def test_an_unreadable_report_waits_for_the_next(tmp_path, monkeypatch):
+    t = _ready(_table())
+    (tmp_path / "watch").mkdir()
+    (tmp_path / "watch" / "2026-11-02.json").write_text(json.dumps(t), encoding="utf-8")
+    monkeypatch.setattr(watch.injury, "latest_stamps", lambda season: ["2026-11-02_04_30PM"])
+    monkeypatch.setattr(watch.injury, "download", lambda stamp: b"not a pdf")
+    res = watch.run(tmp_path, NOW, dry=True)
+    assert res["report"].startswith("unavailable")

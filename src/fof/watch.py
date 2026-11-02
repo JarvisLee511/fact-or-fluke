@@ -186,9 +186,13 @@ def _write(path: Path, obj) -> None:
     os.replace(tmp, path)
 
 
-def _snapshot(key: str, repo: Path, tag: str) -> dict:
-    """One h2h odds snapshot (1 credit), kept like record_odds.py keeps its own."""
-    games, quota = odds.snapshot(key, markets="h2h")
+def _snapshot(key: str, repo: Path, tag: str) -> dict | None:
+    """One h2h odds snapshot (1 credit), kept like record_odds.py keeps its own; None if the API refused (the
+    numbers still go out, without prices)."""
+    try:
+        games, quota = odds.snapshot(key, markets="h2h")
+    except FetchError:
+        return None
     taken = now_et()
     snap = {"taken_at": taken.isoformat(), "bookmakers": odds.MA_BOOKS, "regions": None, "markets": "h2h",
             "quota": quota, "games": games}
@@ -197,8 +201,13 @@ def _snapshot(key: str, repo: Path, tag: str) -> dict:
 
 
 def _report(day: date) -> tuple[list[dict], str]:
+    """The latest official report, parsed. Raises FetchError when it cannot be had or read this time."""
     stamp = injury.latest_stamps(season_of(day))[-1]
-    return injury.parse(injury.download(stamp)), stamp
+    body = injury.download(stamp)
+    try:
+        return injury.parse(body), stamp
+    except Exception as e:                       # a PDF the parser cannot read: wait for the next one
+        raise FetchError(f"report {stamp} (unreadable: {e})", None) from e
 
 
 def run(repo: Path, now: datetime | None = None, dry: bool = False) -> dict:
@@ -218,7 +227,7 @@ def run(repo: Path, now: datetime | None = None, dry: bool = False) -> dict:
     snap, closing = None, due_closing(table, state, now)
     if closing and key:
         snap = _snapshot(key, repo, "close")
-        for gid in closing:
+        for gid in closing if snap else ():
             state["games"][gid]["closed"] = True
     try:
         report, stamp = _report(day)
