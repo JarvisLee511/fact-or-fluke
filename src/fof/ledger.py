@@ -6,6 +6,7 @@ written back. The private repo's git history doubles as proof that nothing was e
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 from .config import ROOT
@@ -32,3 +33,12 @@ def append(path: Path, rows: list[dict]) -> int:
         for r in new:
             f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
     return len(new)
+
+
+def for_day(day: date, model: str) -> list[dict]:
+    """The day's predictions in tip order, one per game: `model`'s wherever it made one."""
+    rows: dict[str, dict] = {}
+    for p in read(PREDICTIONS):
+        if p["game_date"] == day.isoformat() and (p["game_id"] not in rows or p.get("model") == model):
+            rows[p["game_id"]] = p
+    return sorted(rows.values(), key=lambda p: p["tip_utc"])

@@ -9,6 +9,8 @@ from datetime import date, datetime
 from .config import ET
 
 WEEKDAY = "一二三四五六日"
+REASON = {"players": "球員實力", "absent": "傷兵缺陣", "elo": "Elo 戰績", "home": "主場", "schedule": "賽程休息",
+          "b2b": "背靠背", "rest": "休息天數", "tif": "4 天 3 戰"}
 
 
 def _tip(tip_utc) -> str:
@@ -17,6 +19,18 @@ def _tip(tip_utc) -> str:
         from zoneinfo import ZoneInfo
         t = t.replace(tzinfo=ZoneInfo("UTC"))
     return t.astimezone(ET).strftime("%H:%M")
+
+
+def _md(day: str) -> str:
+    """'2026-11-02' -> '11/2'."""
+    return f"{int(day[5:7])}/{int(day[8:10])}"
+
+
+def reasons(p: dict) -> str:
+    """'球員實力 BOS +8、主場 BOS +4': each part's share of the win probability (points), biggest first."""
+    parts = sorted(((k, v) for k, v in (p.get("why") or {}).items() if abs(v) >= 0.005), key=lambda kv: -abs(kv[1]))
+    return "、".join(f"{REASON.get(k, k)} {p['home'] if v > 0 else p['away']} +{int(abs(v) * 100 + 0.5)}"
+                    for k, v in parts)
 
 
 def prediction_lines(p: dict) -> list[str]:
@@ -29,6 +43,9 @@ def prediction_lines(p: dict) -> list[str]:
         mfav, mp = (home, mkt) if mkt >= 0.5 else (away, 1 - mkt)
         model += f"｜賭盤：{mfav} {mp:.0%}"
     lines = [head, model]
+    why = reasons(p)
+    if why:
+        lines.append(f"  原因：{why}")
     best, ev, pick, suspect = p.get("best"), p.get("ev"), p.get("pick"), p.get("suspect")
     if pick:
         price, book = best[pick]
@@ -49,7 +66,7 @@ def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_tota
     out = [title, ""]
     if partial:
         out += ["※ 昨晚的追蹤數據到中午還沒出來，今天的 fun fact 用的是前一天的累計資料。", ""]
-    out.append(f"今日預測（{len(preds)} 場，基準模型：Elo＋賽程情境）" if preds else "今天沒有比賽。")
+    out.append(f"今日預測（{len(preds)} 場，模型：{card.get('label', '')}）" if preds else "今天沒有比賽。")
     for p in preds:
         out += prediction_lines(p)
     y = card.get("yesterday") or {}
@@ -57,9 +74,19 @@ def compose(day: date, preds: list[dict], card: dict, changes: dict, listed_tota
     if y.get("n"):
         market = f"、賭盤熱門 {y['market_correct']}/{y['market_n']}" if y.get("market_n") else ""
         out.append(f"昨天：模型猜中 {y['model_correct']}/{y['n']}{market}")
+    for old in card.get("previous") or []:   # the day after a switch: yesterday was the old model's, scored apart
+        oy, ob = old.get("yesterday") or {}, old.get("bets") or {}
+        if oy.get("n"):
+            market = f"、賭盤熱門 {oy['market_correct']}/{oy['market_n']}" if oy.get("market_n") else ""
+            out.append(f"昨天（舊版模型：{old['label']}）：猜中 {oy['model_correct']}/{oy['n']}{market}")
+            if ob.get("n"):
+                span = _md(old["since"]) + ("" if old["until"] == old["since"] else f"–{_md(old['until'])}")
+                out.append(f"舊版模擬帳本（{span}）：{ob['profit']:+.2f}u（稅後 {ob['profit_after_tax']:+.2f}u），"
+                           f"{ob['n']} 注 {ob['wins']} 勝，之後分開計")
     b = card.get("bets") or {}
+    since = f"{_md(card['since'])} 起 " if card.get("since") else ""
     if b.get("n"):
-        out.append(f"模擬帳本：本季 {b['profit']:+.2f}u（稅後 {b['profit_after_tax']:+.2f}u），"
+        out.append(f"模擬帳本：{since}{b['profit']:+.2f}u（稅後 {b['profit_after_tax']:+.2f}u），"
                    f"{b['n']} 注 {b['wins']} 勝")
     else:
         out.append("模擬帳本：還沒有結算的注")

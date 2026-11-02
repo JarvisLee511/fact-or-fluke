@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from fof.config import DATA
-from fof.model import baseline, impact, minutes
+from fof.model import baseline, impact, minutes, player
 from fof.store import db
 
 MODES = ["morning", "report", "active", "lineup", "oracle"]
@@ -28,18 +28,20 @@ FIRST = "2017-18"            # 2016-17 is the first season of stints: it only se
 CONTEXT = ["home", "b2b", "rest", "tif"]
 
 
-def team_rating(r: impact.Ratings, mins: dict[int, float]) -> float:
-    """Expected points per 100 possessions above average while the team's players are on the floor."""
-    return sum(m / 48.0 * (r.o.get(p, r.new_o) + r.d.get(p, r.new_d)) for p, m in mins.items())
+def calibration(con, tg: list[tuple], first: str) -> tuple[dict, dict, dict]:
+    """The play rates behind the expected minutes (by run of missed games, counted over the first season),
+    every past game's morning report statuses, and how often each status played (over CALIBRATE)."""
+    rates = minutes.play_rates(tg, {first})
+    status = minutes.report_status(con)
+    return rates, status, minutes.play_rates_with_report(tg, status, CALIBRATE)
 
 
 def rows(con, every: int, lam: float, decay: float, box: bool = True) -> pd.DataFrame:
     seasons, players, order = impact.load(con)
     walk = impact.Walk(seasons, players, order, lam=lam, decay=decay, box=impact.load_box(con) if box else None)
     tg = minutes.team_games(con)
-    rates = minutes.play_rates(tg, {order[0]})
-    status = minutes.report_status(con)
-    exp = minutes.expected(tg, rates, status, minutes.play_rates_with_report(tg, status, CALIBRATE))
+    rates, status, report_rates = calibration(con, tg, order[0])
+    exp = minutes.expected(tg, rates, status, report_rates)
     cols = ["game_id", "season", "game_date", "tip_utc", "home_id", "away_id", "home_code", "away_code",
             "home_score", "away_score", "neutral", "status"]
     games = [dict(zip(cols, r)) for r in con.execute(
@@ -66,7 +68,7 @@ def rows(con, every: int, lam: float, decay: float, box: bool = True) -> pd.Data
                    has_report=(gid, home) in status and (gid, away) in status)
         for mode in MODES:
             h, a = exp[mode].get((gid, home)), exp[mode].get((gid, away))
-            row[mode] = team_rating(r, h) - team_rating(r, a) if h and a else np.nan
+            row[mode] = player.team_strength(r, h) - player.team_strength(r, a) if h and a else np.nan
         out.append(row)
     return pd.DataFrame(out)
 

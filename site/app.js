@@ -12,8 +12,10 @@ const tipTime = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "nume
 const longDate = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US",
   { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const clampPct = (v) => `${(Math.min(Math.max(v, 0), 1) * 100).toFixed(1)}%`;
+const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
 
-const WHY = { elo: "Elo", home: "主場", b2b: "背靠背", rest: "休息天數", tif: "4 天 3 戰" };
+const WHY = { players: "球員實力", absent: "傷兵缺陣", elo: "Elo 戰績", home: "主場", schedule: "賽程休息",
+  b2b: "背靠背", rest: "休息天數", tif: "4 天 3 戰" };
 const STATUS = { listed: "上榜", observing: "觀察中", eliminated: "淘汰" };
 const TABS = ["today", "standings", "fluke", "lastnight"];
 const FACT_VIEWS = {
@@ -46,10 +48,19 @@ function strip(card) {
     ${cell("昨天 · 模型", y.n ? `${y.model_correct}/${y.n}` : "—",
            y.market_n ? `賭盤 ${y.market_correct}/${y.market_n}` : "還沒有結果")}
     ${cell("本季 · 模型", all.n ? `${all.model_correct}/${all.n}` : "—",
-           all.market_n ? `賭盤 ${all.market_correct}/${all.market_n}` : "從 11/1 開始記")}
+           all.market_n ? `賭盤 ${all.market_correct}/${all.market_n}` : `從 ${md(card.since || DATA.today.day)} 開始記`)}
     ${cell("模擬帳本", b.n ? `<span class="${b.profit >= 0 ? "pos" : "neg"}">${units(b.profit)}</span>` : "—",
            b.n ? `稅後 ${units(b.profit_after_tax)} · ${b.n} 注` : "還沒有結算的注")}
-  </dl>`;
+  </dl>${(card.previous || []).map(previous).join("")}`;
+}
+
+// a model the site no longer uses keeps its own record, never merged into the current one
+function previous(c) {
+  const a = c.all || {}, b = c.bets || {};
+  if (!a.n && !b.n) return "";
+  const span = md(c.since) + (c.until && c.until !== c.since ? `–${md(c.until)}` : "");
+  const bets = b.n ? ` · 模擬帳本 ${units(b.profit)}（稅後 ${units(b.profit_after_tax)}）· ${b.n} 注` : "";
+  return `<p class="strip-note">舊版模型 ${esc(c.label)}（${span}）：猜中 ${a.model_correct || 0}/${a.n || 0}${bets}</p>`;
 }
 
 function gameBlock(p) {
@@ -97,7 +108,7 @@ function renderToday() {
   $("#view-today").innerHTML = `
     <header class="view__head">
       <h1 class="view__title">Today</h1>
-      <p class="view__sub">${longDate(t.day)} · ${games.length} 場 · 模型：Elo＋賽程情境（基準版）· 賭盤：麻州 5 家<br>
+      <p class="view__sub">${longDate(t.day)} · ${games.length} 場 · 模型：${esc(DATA.meta.model_zh || "Elo＋賽程情境")} · 賭盤：麻州 5 家<br>
         <span class="legend"><i class="swatch"></i>模型</span><span class="legend"><i class="swatch swatch--market"></i>賭盤</span>
       </p>
     </header>

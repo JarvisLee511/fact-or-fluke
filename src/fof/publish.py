@@ -10,6 +10,7 @@ from . import ledger
 from .config import ROOT, now_et
 from .facts import text
 from .ingest.injury import TEAM_TRICODE
+from .model.player import MODEL
 
 SITE_DATA = ROOT / "site" / "data"
 FOLLOWED = ["POR", "WAS", "PHI", "BOS", "MIA", "MEM", "OKC", "SAS", "MIN", "GSW", "DAL"]
@@ -58,7 +59,7 @@ def results(con, day: date) -> list[dict]:
     rows = con.execute("""select game_id, tip_utc, away_code, home_code, away_score, home_score, status
                           from games where game_date = ? and season_type in ('Regular Season', 'Playoffs', 'PlayIn',
                           'Cup Final') order by tip_utc""", [day]).fetchall()
-    preds = {p["game_id"]: p for p in ledger.read(ledger.PREDICTIONS)}
+    preds = {p["game_id"]: p for p in ledger.for_day(day, MODEL)}
     out = []
     for gid, tip, away, home, a, h, status in rows:
         p = preds.get(gid)
@@ -84,13 +85,11 @@ def last_night(con, day: date, season: str) -> dict:
 
 
 def publish(con, day: date, season: str, card: dict, night: dict, partial: bool) -> None:
-    preds = sorted((p for p in ledger.read(ledger.PREDICTIONS) if p["game_date"] == day.isoformat()),
-                   key=lambda p: p["tip_utc"])
-    _write("today.json", {"day": day.isoformat(), "games": preds, "scorecard": card})
+    _write("today.json", {"day": day.isoformat(), "games": ledger.for_day(day, card["model"]), "scorecard": card})
     _write("lastnight.json", night)
     demo = "2025-26"
     _write("standings.json", standings(con, [(season, season), (demo, f"{demo} demo")] if season != demo
                                        else [(season, season)]))
     _write("meta.json", {"generated_at": now_et().isoformat(), "day": day.isoformat(), "season": season,
                          "partial": partial, "followed": FOLLOWED, "teams": TEAM_NAME,
-                         "model": "Elo + schedule context (baseline)"})
+                         "model": card["model"], "model_zh": card["label"]})

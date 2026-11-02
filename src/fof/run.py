@@ -3,7 +3,7 @@
 collect  refresh the schedule, fetch last night's box scores and play-by-play, check whether last night's
          tracking data is out; once it is (or at the noon cutoff, D5) fetch season-to-date dashboards,
          passes, shots, the injury report and an odds snapshot
-analyze  rebuild the DB, advance the fun fact standings, predict today's games
+analyze  rebuild the DB, advance the fun fact standings, predict today's games with the v2 player model
          (never after tip-off), append to the ledgers, email the digest, push the private repo
 Progress is checkpointed in data/state/<day>.json; a lock file stops two runs overlapping.
 """
@@ -15,19 +15,19 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import date, datetime, time, timedelta
+from datetime import date, time, timedelta, timezone
 
 from . import betting, digest, ledger, publish
-from .config import DATA, ET, ROOT, now_et, previous_season, season_of
+from .config import DATA, ET, ROOT, now_et, season_of
 from .facts import standings
 from .ingest import collect, injury, odds
 from .ingest import nbastats as ns
 from .ingest.http import FetchError
-from .model import baseline
+from .model import baseline, player
 from .notify import email
 from .store import build, db, raw
 
-MODEL = "baseline-elo-context-v1"
+MODEL_LABELS = {"baseline-elo-context-v1": "Elo＋賽程情境", player.MODEL: "球員影響力＋傷兵報告"}
 SITE_URL = "https://jarvislee511.github.io/fact-or-fluke/"
 CUTOFF = time(12, 0)
 GAME_PREFIXES = ("002", "004", "005", "006")
@@ -104,6 +104,10 @@ def collect_day(day: date, force: bool) -> dict:
         raw.save(injury.parse(injury.download(stamp)), "injury", day.isoformat(), stamp)
     except (FetchError, IndexError) as e:
         log.warning("injury report: %s", e)
+    try:
+        collect.player_index(season, day)       # today's rosters, for the expected minutes
+    except FetchError as e:
+        log.warning("player index: %s", e)
     key = os.environ.get("ODDS_API_KEY")
     if key:
         games_odds, quota = odds.snapshot(key)
@@ -125,39 +129,29 @@ def _git(args: list[str], repo=None) -> None:
 def predict(con, day: date) -> list[dict]:
     cols = ["game_id", "season", "game_date", "tip_utc", "home_id", "away_id", "home_code", "away_code",
             "home_score", "away_score", "neutral", "status"]
-    # the baseline keeps the window it was fitted on (this season and the two before), whatever history the
-    # database holds; the Phase 2 model is the one that uses the full history
-    since = previous_season(previous_season(season_of(day)))
+    # Elo over the whole history, as in the backtest the v2 weights were fitted on
     games = [dict(zip(cols, r)) for r in con.execute(
-        f"select {', '.join(cols)} from games where tip_utc is not null and season >= ? order by tip_utc",
-        [since]).fetchall()]
-    rows = baseline.feature_rows(games)
-    first = min(r["season"] for r in rows)
-    train = [r for r in rows if r["status"] == 3 and r["game_date"] < day
-             and not (r["season"] == first and r["game_date"].month == 10)]
-    import numpy as np
-    w = baseline.fit(np.array([r["x"] for r in train]),
-                     np.array([float(r["home_score"] > r["away_score"]) for r in train]))
+        f"select {', '.join(cols)} from games where tip_utc is not null order by tip_utc").fetchall()]
     now = now_et()
+    upcoming = [r for r in baseline.feature_rows(games) if r["game_date"] == day and r["status"] != 3
+                and r["tip_utc"].replace(tzinfo=timezone.utc) > now]
+    made = player.predict(con, day, upcoming, now)
     out = []
-    for r in rows:
-        tip = r["tip_utc"].replace(tzinfo=__import__("zoneinfo").ZoneInfo("UTC"))
-        if r["game_date"] != day or r["status"] == 3 or tip <= now:
-            continue
-        p = float(baseline.predict(w, np.array([r["x"]]))[0])
-        why = {}  # each factor's share: home win probability with it minus without it (percentage points)
-        for i, name in enumerate(baseline.FEATURES):
-            x0 = list(r["x"])
-            x0[i] = 0.0
-            why[name] = round(p - float(baseline.predict(w, np.array([x0]))[0]), 4)
+    for r in upcoming:
+        m, tip = made[r["game_id"]], r["tip_utc"].replace(tzinfo=timezone.utc)
+        p = m["p_home"]
         mv = betting.market_view(con, r["home_code"], r["away_code"], day, now)
         val = betting.value(p, mv, r["home_code"], r["away_code"]) if mv else {"ev": None, "pick": None,
                                                                                "suspect": None}
         out.append(dict(
-            id=f"{r['game_id']}:v1", made_at=now.isoformat(), version="v1", model=MODEL, game_id=r["game_id"],
-            game_date=day.isoformat(), tip_utc=tip.isoformat(), home=r["home_code"], away=r["away_code"],
-            p_home=round(p, 4), features=dict(zip(baseline.FEATURES, [round(x, 3) for x in r["x"]])), why=why,
+            id=f"{r['game_id']}:{player.VERSION}", made_at=now.isoformat(), version=player.VERSION,
+            model=player.MODEL, game_id=r["game_id"], game_date=day.isoformat(), tip_utc=tip.isoformat(),
+            home=r["home_code"], away=r["away_code"], p_home=round(p, 4),
+            features={k: round(v, 3) for k, v in m["features"].items()},
+            why={k: round(v, 4) for k, v in m["why"].items()},
             elo=[round(r["elo_home"], 1), round(r["elo_away"], 1)],
+            strength=[round(v, 2) for v in m["strength"]], healthy=[round(v, 2) for v in m["healthy"]],
+            report_at=m["report_at"],
             market_p_home=round(mv["market_p_home"], 4) if mv and mv["market_p_home"] else None,
             odds_taken_at=str(mv["taken_at"]) if mv else None, best=mv["best"] if mv else None,
             ev={k: round(v, 4) for k, v in val["ev"].items()} if val["ev"] else None, pick=val["pick"],
@@ -166,9 +160,12 @@ def predict(con, day: date) -> list[dict]:
 
 
 def scorecard(con, day: date) -> dict:
+    """The current model's record (every prediction with a result, yesterday's, its paper bets) and, scored
+    apart, each model it replaced."""
     results = {gid: (h > a) for gid, h, a in con.execute(
         "select game_id, home_score, away_score from games where status = 3").fetchall()}
-    preds = [p for p in ledger.read(ledger.PREDICTIONS) if p["game_id"] in results]
+    made = ledger.read(ledger.PREDICTIONS)
+    model_of = {p["id"]: p.get("model") for p in made}
     yday = (day - timedelta(days=1)).isoformat()
 
     def summary(ps):
@@ -178,11 +175,21 @@ def scorecard(con, day: date) -> dict:
         return {"n": len(ps), "model_correct": sum((p["p_home"] > 0.5) == results[p["game_id"]] for p in ps),
                 "market_n": len(mk),
                 "market_correct": sum((p["market_p_home"] > 0.5) == results[p["game_id"]] for p in mk)}
-    bets = [b for b in ledger.read(ledger.BETS) if b["game_id"] in results]
-    settled = [betting.settle(b["price"], results[b["game_id"]] == (b["side"] == "home")) for b in bets]
-    return {"all": summary(preds), "yesterday": summary([p for p in preds if p["game_date"] == yday]),
-            "bets": {"n": len(bets), "wins": sum(s[0] > 0 for s in settled),
-                     "profit": sum(s[0] for s in settled), "profit_after_tax": sum(s[1] for s in settled)}}
+
+    def card(model):
+        ps = [p for p in made if p.get("model") == model and p["game_id"] in results]
+        bets = [b for b in ledger.read(ledger.BETS) if model_of.get(b["pred_id"]) == model and b["game_id"] in results]
+        settled = [betting.settle(b["price"], results[b["game_id"]] == (b["side"] == "home")) for b in bets]
+        days = sorted(p["game_date"] for p in made if p.get("model") == model)
+        return {"model": model, "label": MODEL_LABELS.get(model, model), "since": days[0] if days else day.isoformat(),
+                "until": days[-1] if days else None, "all": summary(ps),
+                "yesterday": summary([p for p in ps if p["game_date"] == yday]),
+                "bets": {"n": len(bets), "wins": sum(s[0] > 0 for s in settled),
+                         "profit": sum(s[0] for s in settled), "profit_after_tax": sum(s[1] for s in settled)}}
+
+    earlier = sorted({p.get("model") for p in made} - {player.MODEL},
+                     key=lambda m: min(p["game_date"] for p in made if p.get("model") == m))
+    return {**card(player.MODEL), "previous": [card(m) for m in earlier]}
 
 
 def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
@@ -194,12 +201,11 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     made = predict(con, day)
     n_pred = ledger.append(ledger.PREDICTIONS, made)
     n_bet = ledger.append(ledger.BETS, [dict(
-        id=f"{p['game_id']}:v1:bet", pred_id=p["id"], game_id=p["game_id"], game_date=p["game_date"],
+        id=f"{p['id']}:bet", pred_id=p["id"], game_id=p["game_id"], game_date=p["game_date"],
         side="home" if p["pick"] == p["home"] else "away", team=p["pick"], price=p["best"][p["pick"]][0],
         book=p["best"][p["pick"]][1], stake=betting.STAKE, ev=p["ev"][p["pick"]], made_at=p["made_at"])
         for p in made if p.get("pick")])
-    preds = sorted((p for p in ledger.read(ledger.PREDICTIONS) if p["game_date"] == day.isoformat()),
-                   key=lambda p: p["tip_utc"])                       # the email shows what the ledger holds
+    preds = ledger.for_day(day, player.MODEL)                         # the email shows what the ledger holds
     card = scorecard(con, day)
     listed_total = con.execute("select count(*) from facts where season = ? and status = 'listed'",
                                [season]).fetchone()[0]

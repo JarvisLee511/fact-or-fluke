@@ -71,7 +71,7 @@ def build(seasons: set[str] | None = None) -> dict[str, int]:
                 batch += load.pass_rows(raw.read(f), season, day)
             add("passes", batch)
     latest_index = max((f for s in _seasons("players") for f in raw.files("players", s)), default=None,
-                       key=lambda p: p.name)
+                       key=lambda p: (p.parent.name, p.name))       # newest season first: its rosters are today's
     if latest_index:
         add("players", load.player_rows(raw.read(latest_index)))
     counts["injuries"] = injuries(con, history=seasons is None)

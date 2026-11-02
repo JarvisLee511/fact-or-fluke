@@ -103,9 +103,11 @@ def pass_rows(payload: dict, season: str, as_of: str) -> list[dict]:
 
 
 def player_rows(payload: dict) -> list[dict]:
+    """The league's player index: every player ever, his last team, and whether he is on its roster today."""
     return [dict(player_id=r["PERSON_ID"], name=f'{r["PLAYER_FIRST_NAME"]} {r["PLAYER_LAST_NAME"]}'.strip(),
                  team_code=r.get("TEAM_ABBREVIATION") or "", position=r.get("POSITION") or "",
-                 height=r.get("HEIGHT") or "") for r in ns.result_sets(payload)["PlayerIndex"]]
+                 height=r.get("HEIGHT") or "", team_id=r.get("TEAM_ID") or None,
+                 on_roster=r.get("ROSTER_STATUS") == 1) for r in ns.result_sets(payload)["PlayerIndex"]]
 
 
 def injury_rows(report: list[dict], stamp: str) -> list[dict]:

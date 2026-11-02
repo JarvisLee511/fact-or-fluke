@@ -46,16 +46,16 @@ class Ratings:
     new_d: float = 0.0
 
 
-def load(con: duckdb.DuckDBPyConnection) -> tuple[dict[str, Season], list[int], list[str]]:
-    """Every checked stint as observations. Columns: O for each player, D for each player, then a league
-    average and a home-court term for each season."""
+def load(con: duckdb.DuckDBPyConnection, since: str = "") -> tuple[dict[str, Season], list[int], list[str]]:
+    """Every checked stint (of seasons from `since` on, if given) as observations. Columns: O for each player,
+    D for each player, then a league average and a home-court term for each season."""
     cols = ", ".join([f"s.h{k}" for k in range(1, 6)] + [f"s.a{k}" for k in range(1, 6)])
     data = con.execute(f"""
         select g.season, g.game_date, coalesce(g.neutral, false) as neutral, {cols}, s.home_pts, s.away_pts,
                s.home_poss, s.away_poss
         from stints s join games g using (game_id) join stint_checks c using (game_id)
-        where c.ok and g.season_type in ('Regular Season', 'Playoffs', 'PlayIn')
-        order by g.game_date, s.game_id, s.idx""").fetchnumpy()
+        where c.ok and g.season_type in ('Regular Season', 'Playoffs', 'PlayIn') and g.season >= ?
+        order by g.game_date, s.game_id, s.idx""", [since]).fetchnumpy()
     seasons = sorted(set(data["season"].tolist()))
     lineup = np.column_stack([data[f"h{k}"] for k in range(1, 6)] + [data[f"a{k}"] for k in range(1, 6)])
     players = sorted(set(np.unique(lineup).tolist()))
@@ -99,14 +99,16 @@ def normal(s: Season, before: date | None = None) -> tuple[sp.csr_matrix, np.nda
     return (x.T @ xw).tocsr(), np.asarray(xw.T @ s.y[:k]).ravel()
 
 
-def load_box(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Every player-game box score line that has minutes, with its season and date."""
+def load_box(con: duckdb.DuckDBPyConnection, since: str = "") -> pd.DataFrame:
+    """Every player-game box score line that has minutes (of seasons from `since` on), with its season and
+    date."""
     stats = ", ".join(f"pg.{c}" for c in BOX if c != "fg2a")
     return con.execute(f"""
         select g.season, g.game_date, pg.player_id, pg.seconds / 60.0 as minutes, pg.fga - pg.fg3a as fg2a, {stats}
         from player_games pg join games g using (game_id)
         where g.status = 3 and g.season_type in ('Regular Season', 'Playoffs', 'PlayIn') and pg.seconds > 0
-        order by g.game_date""").df()
+          and g.season >= ?
+        order by g.game_date""", [since]).df()
 
 
 class Walk:
@@ -126,14 +128,19 @@ class Walk:
         self.box: dict[str, pd.DataFrame] = {} if box is None else {str(s): g for s, g in box.groupby("season")}
         self.box_full = {s: _sums(g) for s, g in self.box.items()}
 
+    def _order(self, season: str) -> list[str]:
+        """The seasons up to `season`, which on its opening day has no games yet."""
+        return self.order if season in self.order else self.order + [season]
+
     def _features(self, season: str, day: date, pids: list[int]) -> tuple[np.ndarray, np.ndarray]:
         """Standardised box features (rates per 36 minutes, minutes per game) for `pids`, and the same for a
         new player."""
-        si = self.order.index(season)
+        order = self._order(season)
+        si = order.index(season)
         cur = self.box.get(season)
         tot = _sums(cur[cur["game_date"] < pd.Timestamp(day)]) if cur is not None else _sums(None)
         for k in range(1, self.back + 1):
-            past = self.box_full.get(self.order[si - k]) if si - k >= 0 else None
+            past = self.box_full.get(order[si - k]) if si - k >= 0 else None
             if past is not None:
                 tot = tot.add(past * self.decay ** k, fill_value=0.0)
         tot = tot.reindex(pids).fillna(0.0)
@@ -148,11 +155,16 @@ class Walk:
         return (x - mean) / std, (new - mean) / std
 
     def ratings(self, season: str, day: date) -> Ratings:
-        si = self.order.index(season)
-        a, b = normal(self.seasons[season], day)
+        order = self._order(season)
+        si = order.index(season)
+        if season in self.seasons:
+            a, b = normal(self.seasons[season], day)
+        else:
+            n = 2 * len(self.players) + 2 * len(self.order)
+            a, b = sp.csr_matrix((n, n)), np.zeros(n)
         for k in range(1, self.back + 1):
             if si - k >= 0:
-                fa, fb = self.full[self.order[si - k]]
+                fa, fb = self.full[order[si - k]]
                 a, b = a + self.decay ** k * fa, b + self.decay ** k * fb
         n_p = len(self.players)
         active = np.flatnonzero(a.diagonal() > 0)
