@@ -128,6 +128,14 @@ def _git(args: list[str], repo=None) -> None:
             log.warning("git %s: %s", " ".join(args), (r.stderr or r.stdout).strip()[:300])
 
 
+def _commit(message: str, repo=None) -> None:
+    """Commit what is staged; nothing staged (a rerun of a day already pushed) is not worth a warning."""
+    repo = repo or ROOT / "private"
+    if (repo / ".git").exists() and subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--quiet"],
+                                                   capture_output=True, timeout=120).returncode:
+        _git(["commit", "-q", "-m", message], repo)
+
+
 def predict(con, day: date) -> tuple[list[dict], dict]:
     """Ledger rows for today's games not started yet, and the evening watch's table (watch/<day>.json)."""
     cols = ["game_id", "season", "game_date", "tip_utc", "home_id", "away_id", "home_code", "away_code",
@@ -230,11 +238,11 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     sent = email.send(subject, text, html_doc) if send else None
     if push:
         _git(["add", "ledger", *(["watch"] if WATCH.exists() else [])])
-        _git(["commit", "-q", "-m", f"ledger {day}"])
+        _commit(f"ledger {day}")
         _git(["pull", "-q", "--rebase"])          # the cloud workflows commit to this repo too
         _git(["push", "-q"])
         _git(["add", "site/data"], ROOT)
-        _git(["commit", "-q", "-m", f"site data {day}"], ROOT)
+        _commit(f"site data {day}", ROOT)
         _git(["push", "-q"], ROOT)
     return {"rows": counts, "standings": changes, "predictions_new": n_pred,
             "bets_new": n_bet, "email": sent}
