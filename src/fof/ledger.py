@@ -15,6 +15,7 @@ LEDGER_DIR = ROOT / "private" / "ledger"
 PREDICTIONS = LEDGER_DIR / "predictions.jsonl"
 BETS = LEDGER_DIR / "bets.jsonl"
 PREGAME = LEDGER_DIR / "pregame.jsonl"       # the evening watch's recomputes (fof.watch)
+BETS_PREGAME = LEDGER_DIR / "bets_pregame.jsonl"   # the bets the evening watch newly advised, a book of their own
 
 
 def read(path: Path) -> list[dict]:

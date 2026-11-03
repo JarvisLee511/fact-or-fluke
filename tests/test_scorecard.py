@@ -1,6 +1,6 @@
 from datetime import date
 
-from fof import digest, ledger, run
+from fof import ledger, run
 from fof.model import player
 from fof.store import db
 
@@ -30,18 +30,6 @@ def test_a_replaced_model_is_scored_apart(tmp_path, monkeypatch):
     old = card["previous"][0]
     assert old["model"] == OLD and old["all"] == {"n": 2, "model_correct": 1, "market_n": 2, "market_correct": 1}
     assert old["bets"]["n"] == 1 and old["bets"]["profit"] == -1.0
-
-
-def test_the_email_shows_reasons_and_the_old_model_only_the_day_after_the_switch(tmp_path, monkeypatch):
-    con = _setup(tmp_path, monkeypatch)
-    p = dict(home="SAS", away="POR", p_home=0.8, tip_utc="2026-11-03T00:30:00+00:00", market_p_home=None,
-             why={"players": 0.12, "absent": -0.031, "home": 0.04, "schedule": 0.001})
-    assert digest.reasons(p) == "球員實力 SAS +12、主場 SAS +4、傷兵缺陣 POR +3"
-    _, text, _ = digest.compose(date(2026, 11, 2), [p], run.scorecard(con, date(2026, 11, 2)), {}, 0, {}, False)
-    assert "原因：球員實力 SAS +12" in text and "模型：球員影響力＋傷兵報告" in text
-    assert "昨天（舊版模型：Elo＋賽程情境）：猜中 1/2" in text and "舊版模擬帳本（11/1）：-1.00u" in text
-    _, text, _ = digest.compose(date(2026, 11, 3), [p], run.scorecard(con, date(2026, 11, 3)), {}, 0, {}, False)
-    assert "昨天：模型猜中 1/1" in text and "舊版" not in text and "模擬帳本：11/2 起 +0.90u" in text
 
 
 def test_one_prediction_per_game_the_current_models(tmp_path, monkeypatch):

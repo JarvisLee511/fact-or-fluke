@@ -230,11 +230,9 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
         for p in made if p.get("pick")])
     preds = ledger.for_day(day, player.MODEL)                         # the email shows what the ledger holds
     card = scorecard(con, day)
-    listed_total = con.execute("select count(*) from facts where season = ? and status = 'listed'",
-                               [season]).fetchone()[0]
     publish.publish(con, day, season, card, night, partial)
     con.close()
-    subject, text, html_doc = digest.compose(day, preds, card, changes, listed_total, night, partial, SITE_URL)
+    subject, text, html_doc = digest.compose(day, preds, SITE_URL)
     sent = email.send(subject, text, html_doc) if send else None
     if push:
         _git(["add", "ledger", *(["watch"] if WATCH.exists() else [])])
