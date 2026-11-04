@@ -305,7 +305,7 @@ function renderScorecard() {
     return;
   }
   const all = s.model_all || {}, mm = (s.model_vs_market || {}).model || {}, mk = (s.model_vs_market || {}).market || {};
-  const led = s.ledger || {}, clv = s.clv || {}, ver = s.versions || {};
+  const led = s.ledger || {}, clv = s.clv || {}, ver = s.versions || {}, eve = s.evening || {}, eveClv = eve.clv || {};
   const few = !all.n ? `<p class="list-note">第一批比賽打完、隔天早上更新後才有成績。</p>`
     : all.n < 100 ? `<p class="list-note">樣本還很少（${all.n} 場），先看看就好；一兩百場以後這些數字才比較穩。</p>` : "";
   const books = (s.books || []).map((b) => `<tr><td>${esc(b.book)}</td><td>${(b.vig * 100).toFixed(1)}%</td><td>${b.games}</td></tr>`).join("");
@@ -315,7 +315,7 @@ function renderScorecard() {
     <dl class="strip strip--4">
       ${scoreCell("猜中 · 模型", all.n ? `${all.correct}/${all.n}` : "—", mk.n ? `賭盤熱門 ${mk.correct}/${mk.n}` : "還沒有結果")}
       ${scoreCell("Log loss · 越低越準", mm.n ? mm.log_loss.toFixed(3) : "—", mm.n ? `賭盤 ${mk.log_loss.toFixed(3)} · 同樣 ${mm.n} 場` : "還沒有結果")}
-      ${scoreCell("模擬帳本", led.n ? `<span class="${led.profit >= 0 ? "pos" : "neg"}">${units(led.profit)}</span>` : "—",
+      ${scoreCell("模擬帳本 · 早上", led.n ? `<span class="${led.profit >= 0 ? "pos" : "neg"}">${units(led.profit)}</span>` : "—",
                   led.n ? `稅後 ${units(led.profit_after_tax)} · ${led.n} 注 ${led.wins} 勝` : "還沒有結算的注")}
       ${scoreCell("收盤線價值", clv.n ? signed(clv.mean) : "—", clv.n ? `${clv.n} 注裡 ${clv.beat} 注賠率比收盤好` : "還沒有收盤賠率")}
     </dl>
@@ -333,6 +333,15 @@ function renderScorecard() {
             <thead><tr><th scope="col">同樣這幾場</th><th scope="col">猜中</th><th scope="col">Log loss</th></tr></thead>
             <tbody>${versionRow("賽前版（最後一次重算）", ver.pregame)}${versionRow("早上版", ver.morning_same_games || {})}${versionRow("收盤賭盤", ver.closing_market || {})}</tbody>
           </table>` : `<p class="empty">還沒有賽前重算過、而且打完的比賽。</p>`}
+        </section>
+        <section aria-labelledby="h-eve">
+          <h2 class="section-label" id="h-eve">晚上新增的注</h2>
+          <p class="list-note">開賽前的傷兵消息讓比賽變得值得投、晚上用 email 通知的注，跟早上的帳本分開算。</p>
+          ${eve.n ? `<dl class="strip strip--2">
+            ${scoreCell("模擬帳本 · 晚上", `<span class="${eve.profit >= 0 ? "pos" : "neg"}">${units(eve.profit)}</span>`,
+                        `稅後 ${units(eve.profit_after_tax)} · ${eve.n} 注 ${eve.wins} 勝`)}
+            ${scoreCell("收盤線價值", eveClv.n ? signed(eveClv.mean) : "—", eveClv.n ? `${eveClv.n} 注裡 ${eveClv.beat} 注賠率比收盤好` : "還沒有收盤賠率")}
+          </dl>` : `<p class="empty">還沒有晚上新增、而且打完的注。</p>`}
         </section>
         <section aria-labelledby="h-books">
           <h2 class="section-label" id="h-books">各家抽成</h2>

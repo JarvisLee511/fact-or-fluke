@@ -75,6 +75,7 @@ def build(seasons: set[str] | None = None) -> dict[str, int]:
     if latest_index:
         add("players", load.player_rows(raw.read(latest_index)))
     counts["injuries"] = injuries(con, history=seasons is None)
+    con.execute("delete from odds where taken_at >= commence_utc::timestamptz")   # live odds loaded before
     for day in _seasons("odds"):
         for f in raw.files("odds", day):
             add("odds", odds_rows(raw.read(f)))

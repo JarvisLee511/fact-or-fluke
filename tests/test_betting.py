@@ -39,3 +39,13 @@ def test_odds_rows_maps_team_names_to_codes():
     rows = betting.odds_rows(snap)
     assert {(r["home"], r["away"], r["outcome"], r["price"]) for r in rows} == {
         ("ORL", "BOS", "ORL", 3.1), ("ORL", "BOS", "BOS", 1.38)}
+
+
+def test_odds_rows_leave_out_games_already_under_way():
+    game = lambda gid, start: {"id": gid, "commence_time": start, "home_team": "Orlando Magic",
+                               "away_team": "Boston Celtics", "bookmakers": [{"key": "fanduel", "markets": [
+                                   {"key": "h2h", "outcomes": [{"name": "Orlando Magic", "price": 3.1},
+                                                               {"name": "Boston Celtics", "price": 1.38}]}]}]}
+    snap = {"taken_at": "2026-11-02T22:27:31-05:00",        # a late run: the 19:00 tip is under way, live odds
+            "games": [game("e1", "2026-11-03T00:00:00Z"), game("e2", "2026-11-03T03:30:00Z")]}
+    assert {r["event_id"] for r in betting.odds_rows(snap)} == {"e2"}

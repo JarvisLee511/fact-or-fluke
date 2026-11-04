@@ -18,9 +18,13 @@ TAX_ON_WINNINGS = 0.30  # non-resident withholding on winnings; losses are not d
 
 
 def odds_rows(snapshot: dict) -> list[dict]:
+    """A snapshot's prices as odds-table rows. Games already under way are left out: a snapshot taken after some
+    tips (a late scheduled run) holds live odds for them, not a pre-game line."""
     taken = snapshot["taken_at"]
     rows = []
     for g in snapshot["games"]:
+        if datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00")) <= datetime.fromisoformat(taken):
+            continue
         for b in g.get("bookmakers", []):
             for m in b.get("markets", []):
                 for o in m["outcomes"]:

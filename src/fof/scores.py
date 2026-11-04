@@ -4,6 +4,8 @@
 - calibration: games grouped by the favourite's probability, against how often favourites won
 - the paper ledger (D2/D3) before and after the 30% tax, and closing line value: each paper bet's price
   against the last line before tip (fair probability at the close x price - 1; positive = better than close)
+- the evening's own paper book: the bets the pre-game watch newly advised (ledger/bets_pregame.jsonl), apart
+  from the morning's
 - morning version against pre-game version (ledger/pregame.jsonl), each against the market of its moment:
   the morning line, and the closing line
 - each Massachusetts book's cut on the moneyline this season, smallest first
@@ -48,6 +50,24 @@ def closing(con: duckdb.DuckDBPyConnection, pred: dict) -> dict | None:
     return mv
 
 
+def _record(bets: list[dict], results: dict) -> dict:
+    """A paper book's bets, wins and profit, before and after the tax."""
+    settled = [betting.settle(b["price"], results[b["game_id"]] == (b["side"] == "home")) for b in bets]
+    return {"n": len(bets), "wins": sum(s[0] > 0 for s in settled), "profit": sum(s[0] for s in settled),
+            "profit_after_tax": sum(s[1] for s in settled)}
+
+
+def _clv(con: duckdb.DuckDBPyConnection, bets: list[dict], game_of) -> dict:
+    """Each bet's price against the closing line (the game of a bet: `game_of(bet)`, with home, away, date, tip)."""
+    out = []
+    for b in bets:
+        close = closing(con, game_of(b))
+        if close and close["market_p_home"] is not None:
+            p_side = close["market_p_home"] if b["side"] == "home" else 1 - close["market_p_home"]
+            out.append(p_side * b["price"] - 1)
+    return {"n": len(out), "beat": sum(v > 0 for v in out), "mean": sum(out) / len(out) if out else None}
+
+
 def calibration(rows: list[tuple[float, bool]]) -> list[dict]:
     """Games grouped by the favourite's probability: how sure the model was, and how often favourites won."""
     fav = [(max(p, 1 - p), won == (p >= 0.5)) for p, won in rows]
@@ -81,13 +101,7 @@ def page(con: duckdb.DuckDBPyConnection, day: date, card: dict) -> dict:
     by_id = {p["id"]: p for p in morning}
     with_market = [p for p in morning if p.get("market_p_home") is not None]
     bets = [b for b in ledger.read(ledger.BETS) if b.get("pred_id") in by_id]
-    settled = [betting.settle(b["price"], results[b["game_id"]] == (b["side"] == "home")) for b in bets]
-    clv = []
-    for b in bets:
-        close = closing(con, by_id[b["pred_id"]])
-        if close and close["market_p_home"] is not None:
-            p_side = close["market_p_home"] if b["side"] == "home" else 1 - close["market_p_home"]
-            clv.append(p_side * b["price"] - 1)
+    evening = [b for b in ledger.read(ledger.BETS_PREGAME) if b.get("model") == model and b["game_id"] in results]
     pregame = {}
     for r in ledger.read(ledger.PREGAME):        # each game's last pre-game number before tip
         made = datetime.fromisoformat(r["made_at"])
@@ -111,9 +125,9 @@ def page(con: duckdb.DuckDBPyConnection, day: date, card: dict) -> dict:
         "model_vs_market": {"model": _summary([(p["p_home"], results[p["game_id"]]) for p in with_market]),
                             "market": _summary([(p["market_p_home"], results[p["game_id"]]) for p in with_market])},
         "calibration": calibration([(p["p_home"], results[p["game_id"]]) for p in morning]),
-        "ledger": {"n": len(bets), "wins": sum(s[0] > 0 for s in settled), "profit": sum(s[0] for s in settled),
-                   "profit_after_tax": sum(s[1] for s in settled)},
-        "clv": {"n": len(clv), "beat": sum(v > 0 for v in clv), "mean": sum(clv) / len(clv) if clv else None},
+        "ledger": _record(bets, results),
+        "clv": _clv(con, bets, lambda b: by_id[b["pred_id"]]),
+        "evening": {**_record(evening, results), "clv": _clv(con, evening, lambda b: b)},
         "versions": {"pregame": _summary(pre_rows), "morning_same_games": _summary(pre_morning),
                      "closing_market": _summary(pre_close)},
         "books": books(con, start),
