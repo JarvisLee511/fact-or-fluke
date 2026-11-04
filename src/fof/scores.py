@@ -120,7 +120,8 @@ def page(con: duckdb.DuckDBPyConnection, day: date, card: dict) -> dict:
             pre_close.append((close["market_p_home"], won))
     start = date(int(card["since"][:4]) - (1 if int(card["since"][5:7]) < 8 else 0), 8, 1)
     return {
-        "model": model, "label": card["label"], "since": card["since"], "day": day.isoformat(),
+        "model": model, "label": card["label"], "label_en": card.get("label_en", card["label"]),
+        "since": card["since"], "day": day.isoformat(),
         "model_all": _summary([(p["p_home"], results[p["game_id"]]) for p in morning]),
         "model_vs_market": {"model": _summary([(p["p_home"], results[p["game_id"]]) for p in with_market]),
                             "market": _summary([(p["market_p_home"], results[p["game_id"]]) for p in with_market])},

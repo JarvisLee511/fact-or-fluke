@@ -1,12 +1,8 @@
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5 */
-/* Hallmark · macrostructure: agate-tabs (newspaper masthead + three tabbed agate pages + fixed bottom tab bar);
-   desktop = front-page grid (nameplate + sticky section row + ruled columns: games beside the scorecard,
-   filters in a rail beside two columns of facts, last night's standings moves beside the scores)
-   · theme: custom "newsprint agate" · direction: character = agate, deadpan, courtside; world = the sports
-   section's box-score page; moments = the model-vs-market bar and the one value line per game; signature =
-   the double rule of a newspaper nameplate · nav: bottom tab bar · footer: one-line colophon
-   · craft rules partly adapted from unslop by Damir Sokolovsky (@heydamir), CC BY 4.0: one bright element
-   per screen, weights <= 600, sentence case, three text roles, one easing curve, no glyph icons */
+/* Newsprint agate: a sports section's box-score page. Phone: masthead, tabbed pages, a fixed bottom tab
+   bar. Desktop: a front page (nameplate, sticky section row, ruled columns: games beside the scorecard,
+   filters in a rail beside two columns of facts, last night's standings moves beside the scores).
+   Craft rules partly adapted from unslop by Damir Sokolovsky (@heydamir), CC BY 4.0: one bright element
+   per screen, weights <= 600, sentence case, three text roles, one easing curve, no glyph icons. */
 
 :root {
   color-scheme: light dark;
@@ -202,8 +198,8 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .seg button:active { transform: translateY(1px); }
 .seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; transition: none; }
 .seg button:disabled { opacity: 0.55; cursor: not-allowed; }
-.seg--mode { margin-left: auto; }
-.seg--mode button { min-height: 36px; padding: 0 var(--space-2); font-size: var(--text-sm); }
+.mast__controls { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.mast__controls .seg button { min-height: 36px; padding: 0 var(--space-2); font-size: var(--text-sm); }
 .controls__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .select {
   appearance: none;
@@ -231,8 +227,8 @@ main { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-4); }
 .fact { display: grid; grid-template-columns: 5ch minmax(0, 1fr); gap: var(--space-3); padding: var(--space-4) 0; border-bottom: 1px solid var(--rule); }
 .fact__rank { font: 600 var(--text-2xl)/1 var(--font-display); text-align: right; }
 .fact__rank--muted { font: 500 var(--text-xs)/1.9 var(--font-body); color: var(--ink-3); white-space: nowrap; }
-.fact__zh { font-size: var(--text-lg); line-height: 1.5; font-weight: 500; max-width: 60ch; }
-.fact__en { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--ink-2); max-width: 70ch; }
+.fact__text { font-size: var(--text-lg); line-height: 1.5; font-weight: 500; max-width: 60ch; }
+.fact__gloss { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--ink-2); max-width: 70ch; }
 .fact__basis { margin-top: var(--space-2); font-size: var(--text-xs); color: var(--ink-3); }
 .fact__basis b { color: var(--ink-2); font-weight: 600; }
 .fact__verdict { margin-top: var(--space-1); font-size: var(--text-xs); line-height: 1.5; color: var(--ink-2); }

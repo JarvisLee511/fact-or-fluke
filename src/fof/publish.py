@@ -93,4 +93,5 @@ def publish(con, day: date, season: str, card: dict, night: dict, partial: bool)
                                        else [(season, season)]))
     _write("meta.json", {"generated_at": now_et().isoformat(), "day": day.isoformat(), "season": season,
                          "partial": partial, "followed": FOLLOWED, "teams": TEAM_NAME,
-                         "model": card["model"], "model_zh": card["label"]})
+                         "model": card["model"], "model_zh": card["label"],
+                         "model_en": card.get("label_en", card["label"])})

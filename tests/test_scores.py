@@ -44,3 +44,9 @@ def test_the_page_scores_the_model_its_bets_and_both_versions(tmp_path, monkeypa
     eve = page["evening"]                                          # the evening's own book: MIA, lost
     assert (eve["n"], eve["wins"], eve["profit"], eve["profit_after_tax"]) == (1, 0, -1.0, -1.0)
     assert abs(eve["clv"]["mean"] - ((1 - close_home) * 2.30 - 1)) < 1e-9 and eve["clv"]["beat"] == 0
+
+
+def test_every_model_label_has_an_english_one():
+    """The site is bilingual: a model added without an English name would show Chinese to English readers."""
+    from fof import run
+    assert set(run.MODEL_LABELS) == set(run.MODEL_LABELS_EN)

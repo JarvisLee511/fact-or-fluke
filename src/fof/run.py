@@ -29,6 +29,7 @@ from .notify import email
 from .store import build, db, raw
 
 MODEL_LABELS = {"baseline-elo-context-v1": "Elo＋賽程情境", player.MODEL: "球員影響力＋傷兵報告"}
+MODEL_LABELS_EN = {"baseline-elo-context-v1": "Elo + schedule context", player.MODEL: "Player impact + injury report"}
 SITE_URL = "https://jarvislee511.github.io/fact-or-fluke/"
 CUTOFF = time(12, 0)
 GAME_PREFIXES = ("002", "004", "005", "006")
@@ -198,7 +199,8 @@ def scorecard(con, day: date) -> dict:
         bets = [b for b in ledger.read(ledger.BETS) if model_of.get(b["pred_id"]) == model and b["game_id"] in results]
         settled = [betting.settle(b["price"], results[b["game_id"]] == (b["side"] == "home")) for b in bets]
         days = sorted(p["game_date"] for p in made if p.get("model") == model)
-        return {"model": model, "label": MODEL_LABELS.get(model, model), "since": days[0] if days else day.isoformat(),
+        return {"model": model, "label": MODEL_LABELS.get(model, model), "label_en": MODEL_LABELS_EN.get(model, model),
+                "since": days[0] if days else day.isoformat(),
                 "until": days[-1] if days else None, "all": summary(ps),
                 "yesterday": summary([p for p in ps if p["game_date"] == yday]),
                 "bets": {"n": len(bets), "wins": sum(s[0] > 0 for s in settled),

@@ -4,9 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <script>
-    /* layout before first paint: 自動 (by screen width) / 電腦 / 手機, remembered in this browser */
+    /* before first paint: layout 自動 (by screen width) / 電腦 / 手機, and language (a saved choice,
+       else the browser's first language: Chinese for zh-*, English otherwise), both remembered here */
     (function () {
-      var mode = "auto", root = document.documentElement;
+      var mode = "auto", lang = null, root = document.documentElement;
+      try { lang = localStorage.getItem("fof-lang"); } catch (e) {}
+      if (lang !== "zh" && lang !== "en") {
+        lang = /^zh\b/i.test((navigator.languages && navigator.languages[0]) || navigator.language || "") ? "zh" : "en";
+      }
+      root.setAttribute("lang", lang === "zh" ? "zh-Hant" : "en");
       try { mode = localStorage.getItem("fof-layout") || "auto"; } catch (e) {}
       if (mode !== "desktop" && mode !== "mobile") mode = "auto";
       if (mode === "desktop") document.querySelector('meta[name="viewport"]').setAttribute("content", "width=1200, viewport-fit=cover");
@@ -30,10 +36,16 @@
       <div class="mast__word">Fact<span>or</span>Fluke</div>
       <div class="mast__date" id="mast-date"></div>
     </div>
-    <div class="seg seg--mode" role="group" aria-label="版面">
-      <button type="button" data-mode="auto" aria-pressed="true">自動</button>
-      <button type="button" data-mode="desktop" aria-pressed="false">電腦</button>
-      <button type="button" data-mode="mobile" aria-pressed="false">手機</button>
+    <div class="mast__controls">
+      <div class="seg seg--lang" role="group" aria-label="Language / 語言">
+        <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        <button type="button" data-lang="zh" lang="zh-Hant" aria-pressed="false">中文</button>
+      </div>
+      <div class="seg seg--mode" role="group" aria-label="Layout" data-aria-zh="版面" data-aria-en="Layout">
+        <button type="button" data-mode="auto" aria-pressed="true" data-zh="自動" data-en="Auto">Auto</button>
+        <button type="button" data-mode="desktop" aria-pressed="false" data-zh="電腦" data-en="Desktop">Desktop</button>
+        <button type="button" data-mode="mobile" aria-pressed="false" data-zh="手機" data-en="Mobile">Mobile</button>
+      </div>
     </div>
   </header>
 
