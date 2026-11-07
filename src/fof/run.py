@@ -6,7 +6,8 @@ collect  refresh the schedule, fetch last night's box scores and play-by-play, c
 analyze  rebuild the DB, advance the fun fact standings, predict today's games with the v2 player model
          (never after tip-off), append to the ledgers, leave the evening watch its table (fof.watch), email
          the digest, push the private repo
-Progress is checkpointed in data/state/<day>.json; a lock file stops two runs overlapping.
+Progress is checkpointed in data/state/<day>.json; a lock file stops two runs overlapping. A private push the
+remote refused every time is made by the next scheduled run.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ import os
 import subprocess
 import sys
 from datetime import date, time, timedelta, timezone
+from time import sleep
 
 from . import betting, digest, ledger, publish
 from .config import DATA, ET, ROOT, now_et, season_of
@@ -120,13 +122,35 @@ def collect_day(day: date, force: bool) -> dict:
     return {**info, "go": True}
 
 
-def _git(args: list[str], repo=None) -> None:
-    """git in the private repo by default (ledger, snapshots), or the public one (site data)."""
+def _git(args: list[str], repo=None) -> bool:
+    """git in the private repo by default (ledger, snapshots), or the public one (site data); False if it failed."""
     repo = repo or ROOT / "private"
     if (repo / ".git").exists():
         r = subprocess.run(["git", "-C", str(repo), *GIT_AUTH, *args], capture_output=True, text=True, timeout=120)
         if r.returncode:
             log.warning("git %s: %s", " ".join(args), (r.stderr or r.stdout).strip()[:300])
+            return False
+    return True
+
+
+def _push(repo=None, tries: int = 3) -> bool:
+    """Pull, then push the private repo. The cloud workflows push to it at any minute: a push one of them beat
+    is pulled again and retried."""
+    for i in range(tries):
+        if _git(["pull", "-q", "--rebase"], repo) and _git(["push", "-q"], repo):
+            return True
+        if i + 1 < tries:
+            sleep(5)
+    log.error("private repo not pushed after %d tries; the next scheduled run tries again", tries)
+    return False
+
+
+def _unpushed(repo=None) -> bool:
+    """The private repo holds commits its remote does not have."""
+    repo = repo or ROOT / "private"
+    r = subprocess.run(["git", "-C", str(repo), "rev-list", "--count", "@{u}..HEAD"],
+                       capture_output=True, text=True, timeout=120)
+    return r.returncode == 0 and r.stdout.strip() not in ("", "0")
 
 
 def _commit(message: str, repo=None) -> None:
@@ -239,8 +263,7 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
     if push:
         _git(["add", "ledger", *(["watch"] if WATCH.exists() else [])])
         _commit(f"ledger {day}")
-        _git(["pull", "-q", "--rebase"])          # the cloud workflows commit to this repo too
-        _git(["push", "-q"])
+        _push()
         _git(["add", "site/data"], ROOT)
         _commit(f"site data {day}", ROOT)
         _git(["push", "-q"], ROOT)
@@ -269,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         st = _state(day)
         if st.get("emailed"):
+            if _unpushed():                     # the day's push the remote refused: this run makes it
+                _push()
             log.info("%s already done", day)
             return 0
         if not st.get("collected"):

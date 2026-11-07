@@ -1,7 +1,8 @@
 """Save one odds snapshot (every upcoming NBA game, Massachusetts books) as JSON under <out>/odds/<ET date>/.
 
 Run by the private repo's scheduled workflow. Without ODDS_API_KEY it does nothing, so the
-schedule can exist before the key does.
+schedule can exist before the key does. When the API is down or refuses, nothing is recorded and it still
+exits 0: the next scheduled run tries again, and a failed run would only mail a failure notice.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from fof.config import now_et
 from fof.ingest import odds
+from fof.ingest.http import FetchError
 
 
 def main() -> int:
@@ -28,7 +30,11 @@ def main() -> int:
         print("ODDS_API_KEY not set; nothing recorded")
         return 0
     taken = now_et()
-    games, quota = odds.snapshot(key, args.bookmakers, args.markets, args.regions)
+    try:
+        games, quota = odds.snapshot(key, args.bookmakers, args.markets, args.regions)
+    except FetchError as e:
+        print(f"odds API unavailable, nothing recorded: {e}")
+        return 0
     books = sorted({b["key"] for g in games for b in g.get("bookmakers", [])})
     tag = args.regions.replace(",", "+") if args.regions else "ma"
     path = args.out / "odds" / taken.date().isoformat() / f"{taken:%H%M%S}_{tag}.json"
