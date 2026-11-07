@@ -1,8 +1,9 @@
 """Daily pipeline (laptop). Scheduled every 30 minutes from 06:00 ET; each ET day is processed once.
 
 collect  refresh the schedule, fetch last night's box scores and play-by-play, check whether last night's
-         tracking data is out; once it is (or at the noon cutoff, D5) fetch season-to-date dashboards,
-         passes, shots, the injury report and an odds snapshot
+         tracking data is out; once it is (or at the noon cutoff, D5) take an odds snapshot, then fetch
+         season-to-date dashboards, passes, shots and the injury report. An odds API that is down is waited
+         for the same way: until the cutoff, then the day goes on without prices (the email says so)
 analyze  rebuild the DB, advance the fun fact standings, predict today's games with the v2 player model
          (never after tip-off), append to the ledgers, leave the evening watch its table (fof.watch), email
          the digest, push the private repo
@@ -34,6 +35,7 @@ MODEL_LABELS = {"baseline-elo-context-v1": "Elo＋賽程情境", player.MODEL: "
 MODEL_LABELS_EN = {"baseline-elo-context-v1": "Elo + schedule context", player.MODEL: "Player impact + injury report"}
 SITE_URL = "https://jarvislee511.github.io/fact-or-fluke/"
 CUTOFF = time(12, 0)
+ODDS_FRESH = timedelta(hours=3)          # an older line is no price: the email would show it as this morning's
 GAME_PREFIXES = ("002", "004", "005", "006")
 STATE = DATA / "state"
 WATCH = ROOT / "private" / "watch"        # the evening watch's tables (fof.watch)
@@ -95,6 +97,9 @@ def collect_day(day: date, force: bool) -> dict:
             "complete": complete, "partial": not complete}
     if not complete and not force and now_et().time() < CUTOFF:
         return {**info, "go": False}
+    priced = _odds_snapshot(day)            # first: while the API is down, a retry costs one call, not all below
+    if not priced and not force and now_et().time() < CUTOFF:
+        return {**info, "go": False, "odds": False}
     if tracking_ready:  # otherwise these would still show yesterday's totals; keep the last good snapshot
         collect.dashboards(season, day, refresh=True)
         for pid in sorted(played):
@@ -113,13 +118,23 @@ def collect_day(day: date, force: bool) -> dict:
         collect.player_index(season, day)       # today's rosters, for the expected minutes
     except FetchError as e:
         log.warning("player index: %s", e)
-    key = os.environ.get("ODDS_API_KEY")
-    if key:
-        games_odds, quota = odds.snapshot(key)
-        raw.save({"taken_at": now_et().isoformat(), "quota": quota, "games": games_odds},
-                 "odds", day.isoformat(), now_et().strftime("%H%M%S"))
     _git(["pull", "-q", "--rebase"])
-    return {**info, "go": True}
+    return {**info, "go": True, "odds": priced}
+
+
+def _odds_snapshot(day: date) -> bool:
+    """This morning's odds snapshot; False when the API is down or refuses this time (no key: nothing to wait for)."""
+    key = os.environ.get("ODDS_API_KEY")
+    if not key:
+        return True
+    try:
+        games_odds, quota = odds.snapshot(key)
+    except FetchError as e:
+        log.warning("odds: %s", e)
+        return False
+    raw.save({"taken_at": now_et().isoformat(), "quota": quota, "games": games_odds},
+             "odds", day.isoformat(), now_et().strftime("%H%M%S"))
+    return True
 
 
 def _git(args: list[str], repo=None) -> bool:
@@ -177,7 +192,7 @@ def predict(con, day: date) -> tuple[list[dict], dict]:
     for r in upcoming:
         m, tip = made[r["game_id"]], r["tip_utc"].replace(tzinfo=timezone.utc)
         p = m["p_home"]
-        mv = betting.market_view(con, r["home_code"], r["away_code"], day, now)
+        mv = betting.market_view(con, r["home_code"], r["away_code"], day, now, fresh=ODDS_FRESH)
         val = betting.value(p, mv, r["home_code"], r["away_code"]) if mv else {"ev": None, "pick": None,
                                                                                "suspect": None}
         out.append(dict(

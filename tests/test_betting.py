@@ -1,6 +1,8 @@
 import json
+from datetime import date, datetime, timedelta, timezone
 
 from fof import betting, ledger
+from fof.store import db
 
 
 def test_value_flags_only_edges_of_three_percent_or_more():
@@ -49,3 +51,15 @@ def test_odds_rows_leave_out_games_already_under_way():
     snap = {"taken_at": "2026-11-02T22:27:31-05:00",        # a late run: the 19:00 tip is under way, live odds
             "games": [game("e1", "2026-11-03T00:00:00Z"), game("e2", "2026-11-03T03:30:00Z")]}
     assert {r["event_id"] for r in betting.odds_rows(snap)} == {"e2"}
+
+
+def test_a_line_older_than_asked_for_is_no_price(tmp_path):
+    tip = datetime(2026, 11, 7, 0, 0, tzinfo=timezone.utc)                   # 19:00 ET on 11/6
+    con = db.connect(tmp_path / "fof.duckdb")
+    db.upsert(con, "odds", [dict(taken_at=tip - timedelta(hours=10), event_id="e1", commence_utc=tip.replace(tzinfo=None),
+                                 home="BOS", away="MIA", book="fanduel", market="h2h", outcome=side, price=price,
+                                 point=None) for side, price in (("BOS", 1.80), ("MIA", 2.10))])
+    noon = tip - timedelta(hours=7)                                           # the line is 3 hours old by then
+    view = lambda fresh: betting.market_view(con, "BOS", "MIA", date(2026, 11, 6), noon, fresh=fresh)
+    assert view(None)["best"]["MIA"] == (2.10, "FanDuel") and view(timedelta(hours=4)) is not None
+    assert view(timedelta(hours=2)) is None

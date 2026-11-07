@@ -1,8 +1,10 @@
 import logging
 import subprocess
-from datetime import date
+from datetime import date, datetime
 
 from fof import run
+from fof.config import ET
+from fof.ingest.http import FetchError
 
 
 def _git(repo, *args) -> str:
@@ -76,3 +78,25 @@ def test_a_day_already_done_makes_the_push_its_run_could_not(tmp_path, monkeypat
     assert not run._unpushed(tmp_path / "cloud") and run._unpushed()
     assert run.main(["--day", "2026-11-07"]) == 0
     assert _git(remote, "log", "-1", "--format=%s").strip() == "ledger 2026-11-07" and not run._unpushed()
+
+
+def test_an_odds_api_that_is_down_is_waited_for_until_the_noon_cutoff(tmp_path, monkeypatch):
+    now = [datetime(2026, 11, 7, 9, 30, tzinfo=ET)]
+    slow = []
+
+    def down(*args, **kwargs):
+        raise FetchError("https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret", 503)
+
+    monkeypatch.setattr(run, "ROOT", tmp_path)                                 # no private repo: no git
+    monkeypatch.setattr(run, "now_et", lambda: now[0])
+    monkeypatch.setenv("ODDS_API_KEY", "secret")
+    monkeypatch.setattr(run.odds, "snapshot", down)
+    monkeypatch.setattr(run.collect, "schedule", lambda season, day: {"leagueSchedule": {"gameDates": []}})
+    monkeypatch.setattr(run.collect, "dashboards", lambda *args, **kwargs: slow.append("dashboards"))
+    monkeypatch.setattr(run.collect, "player_index", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run.injury, "latest_stamps", lambda season: [])
+    info = run.collect_day(date(2026, 11, 7), force=False)
+    assert info["go"] is False and info["odds"] is False and not slow          # stopped before the slow fetches
+    now[0] = datetime(2026, 11, 7, 12, 0, tzinfo=ET)
+    info = run.collect_day(date(2026, 11, 7), force=False)
+    assert info["go"] is True and info["odds"] is False and slow == ["dashboards"]

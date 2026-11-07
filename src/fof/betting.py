@@ -2,7 +2,7 @@
 own (de-vigged) probability, expected value, and the paper bets that follow from them (D2, D3)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import duckdb
 
@@ -36,14 +36,16 @@ def odds_rows(snapshot: dict) -> list[dict]:
     return rows
 
 
-def market_view(con: duckdb.DuckDBPyConnection, home: str, away: str, game_date, as_of: datetime) -> dict | None:
-    """Latest moneylines taken at or before as_of for this matchup on this ET date."""
+def market_view(con: duckdb.DuckDBPyConnection, home: str, away: str, game_date, as_of: datetime,
+                fresh: timedelta | None = None) -> dict | None:
+    """Latest moneylines taken at or before as_of for this matchup on this ET date; with `fresh`, none taken
+    longer than that before as_of."""
     taken = con.execute("""
         select max(taken_at) from odds
         where home = ? and away = ? and market = 'h2h' and taken_at <= ?
           and cast(timezone('America/New_York', commence_utc::timestamptz) as date) = ?""",
                         [home, away, as_of, game_date]).fetchone()[0]
-    if taken is None:
+    if taken is None or (fresh is not None and as_of - taken > fresh):
         return None
     rows = con.execute("""select book, outcome, price from odds
                           where home = ? and away = ? and market = 'h2h' and taken_at = ?""",
