@@ -100,3 +100,45 @@ def test_an_odds_api_that_is_down_is_waited_for_until_the_noon_cutoff(tmp_path, 
     now[0] = datetime(2026, 11, 7, 12, 0, tzinfo=ET)
     info = run.collect_day(date(2026, 11, 7), force=False)
     assert info["go"] is True and info["odds"] is False and slow == ["dashboards"]
+
+
+def _union_attrs(repo):
+    (repo / ".gitattributes").write_text("ledger/*.jsonl merge=union\n")
+    (repo / "ledger").mkdir(exist_ok=True)
+    (repo / "ledger" / "pregame.jsonl").write_text("")
+    _git(repo, "add", ".gitattributes", "ledger/pregame.jsonl")
+    _git(repo, "commit", "-q", "-m", "attrs")
+    _git(repo, "push", "-q")
+
+
+def _append(repo, line, message):
+    with open(repo / "ledger" / "pregame.jsonl", "a") as f:
+        f.write(line + "\n")
+    _git(repo, "add", "ledger/pregame.jsonl")
+    _git(repo, "commit", "-q", "-m", message)
+
+
+def test_two_writers_appending_to_one_ledger_keep_both_lines(tmp_path, monkeypatch):
+    """11/07: the cloud and another writer each added rows to ledger/pregame.jsonl; the rebase stopped on it."""
+    remote, laptop, cloud = _clones(tmp_path)
+    _union_attrs(cloud)
+    _git(laptop, "pull", "-q")
+    _append(cloud, '{"id": "cloud"}', "watch")
+    _git(cloud, "push", "-q")
+    _append(laptop, '{"id": "laptop"}', "ledger")
+    monkeypatch.setattr(run, "sleep", lambda s: None)
+    assert run._push(laptop)
+    _git(cloud, "pull", "-q")
+    assert (cloud / "ledger" / "pregame.jsonl").read_text().splitlines() == ['{"id": "cloud"}', '{"id": "laptop"}']
+
+
+def test_a_pull_that_stops_on_a_conflict_never_leaves_the_repo_mid_rebase(tmp_path, monkeypatch):
+    remote, laptop, cloud = _clones(tmp_path)
+    _commit_file(cloud, "README", "cloud edit")
+    _git(cloud, "push", "-q")
+    _commit_file(laptop, "README", "laptop edit")                  # same file, both sides: a real conflict
+    monkeypatch.setattr(run, "sleep", lambda s: None)
+    assert not run._push(laptop)
+    assert not (laptop / ".git" / "rebase-merge").exists() and not (laptop / ".git" / "rebase-apply").exists()
+    assert _git(laptop, "status", "--porcelain") == ""
+    assert _git(laptop, "log", "-1", "--format=%s").strip() == "laptop edit"   # the commit is kept for next time

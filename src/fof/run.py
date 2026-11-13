@@ -118,7 +118,7 @@ def collect_day(day: date, force: bool) -> dict:
         collect.player_index(season, day)       # today's rosters, for the expected minutes
     except FetchError as e:
         log.warning("player index: %s", e)
-    _git(["pull", "-q", "--rebase"])
+    _pull()
     return {**info, "go": True, "odds": priced}
 
 
@@ -148,14 +148,25 @@ def _git(args: list[str], repo=None) -> bool:
     return True
 
 
-def _push(repo=None, tries: int = 3) -> bool:
+def _pull(repo=None) -> bool:
+    """git pull --rebase; one that stops on a conflict is aborted, so the repo is never left mid-rebase (every
+    later pull and push would fail on it). Append-only ledgers merge as a union (private/.gitattributes)."""
+    if _git(["pull", "-q", "--rebase"], repo):
+        return True
+    repo = repo or ROOT / "private"
+    if (repo / ".git" / "rebase-merge").exists() or (repo / ".git" / "rebase-apply").exists():
+        _git(["rebase", "--abort"], repo)
+    return False
+
+
+def _push(repo=None, tries: int = 5) -> bool:
     """Pull, then push the private repo. The cloud workflows push to it at any minute: a push one of them beat
     is pulled again and retried."""
     for i in range(tries):
-        if _git(["pull", "-q", "--rebase"], repo) and _git(["push", "-q"], repo):
+        if _pull(repo) and _git(["push", "-q"], repo):
             return True
         if i + 1 < tries:
-            sleep(5)
+            sleep(5 * (i + 1))
     log.error("private repo not pushed after %d tries; the next scheduled run tries again", tries)
     return False
 
