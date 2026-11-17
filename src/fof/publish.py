@@ -84,14 +84,18 @@ def last_night(con, day: date, season: str) -> dict:
     return {"day": (day - timedelta(days=1)).isoformat(), **moved, "games": results(con, day - timedelta(days=1))}
 
 
-def publish(con, day: date, season: str, card: dict, night: dict, partial: bool) -> None:
+def publish(con, day: date, season: str, card: dict, night: dict, partial: bool, source: str = "nba") -> None:
+    """source: where last night's games came from ("espn" when stats.nba.com did not answer; the page says so,
+    and that the tracking-based fun facts stand as of the last stats.nba.com snapshot)."""
     _write("today.json", {"day": day.isoformat(), "games": ledger.for_day(day, card["model"]), "scorecard": card})
     _write("lastnight.json", night)
     _write("scorecard.json", scores.page(con, day, card))
     demo = "2025-26"
     _write("standings.json", standings(con, [(season, season), (demo, f"{demo} demo")] if season != demo
                                        else [(season, season)]))
+    tracking = con.execute("select max(as_of) from dash where season = ?", [season]).fetchone()[0]
     _write("meta.json", {"generated_at": now_et().isoformat(), "day": day.isoformat(), "season": season,
-                         "partial": partial, "followed": FOLLOWED, "teams": TEAM_NAME,
+                         "partial": partial, "source": source, "tracking_as_of": str(tracking) if tracking else None,
+                         "followed": FOLLOWED, "teams": TEAM_NAME,
                          "model": card["model"], "model_zh": card["label"],
                          "model_en": card.get("label_en", card["label"])})

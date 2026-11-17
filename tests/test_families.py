@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
+import duckdb
 import numpy as np
 
 from fof.config import previous_season
 from fof.facts import families, text
+from fof.store import db
 
 
 def test_peer_baseline_pools_the_closest_roles_and_never_the_player_himself(monkeypatch):
@@ -13,6 +15,24 @@ def test_peer_baseline_pools_the_closest_roles_and_never_the_player_himself(monk
     base = families.peer_baseline(ctx, [(1, 10, 20), (2, 4, 20), (3, 6, 20), (4, 20, 20)])
     assert base[1] == (0.25, ["B", "C"])            # B and C: (4 + 6) / 40, never A's own 10/20
     assert base[4] == (0.25, ["C", "B"])
+
+
+def test_catch_and_shoot_share_counts_threes_only_up_to_the_tracking_snapshot(monkeypatch):
+    """11/17 dry run: tracking stuck at the 11/10 snapshot while ESPN box scores ran on, so every share shrank
+    and 13 'rarely catches and shoots' facts were listed overnight."""
+    con = duckdb.connect(":memory:")
+    con.execute(db.SCHEMA)
+    con.execute("""insert into games (game_id, season, season_type, game_date, tip_utc, status) values
+                   ('g1', '2026-27', 'Regular Season', '2026-11-08', '2026-11-09 00:00:00', 3),
+                   ('g2', '2026-27', 'Regular Season', '2026-11-12', '2026-11-13 00:00:00', 3)""")
+    con.execute("""insert into player_games (game_id, player_id, team_code, name, seconds, fg3a, fga) values
+                   ('g1', 1, 'BOS', 'A', 1800, 10, 15), ('g2', 1, 'BOS', 'A', 1800, 10, 15)""")
+    con.execute("""insert into dash values ('2026-27', '2026-11-10', 'CatchShoot', 1, 'BOS',
+                   '{"PLAYER_ID": 1, "PLAYER_NAME": "A", "CATCH_SHOOT_FG3A": 6}')""")
+    seen = []
+    monkeypatch.setattr(families, "peer_baseline", lambda ctx, rows: seen.extend(rows) or {})
+    families.shooting_style(families.Context(con, "2026-27"))
+    assert seen == [(1, 6, 10)]                     # g2 (11/12) is after the snapshot
 
 
 def test_previous_season():

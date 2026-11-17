@@ -36,7 +36,7 @@ ledger stays on paper.
 
 | Step | What happens |
 |---|---|
-| Collect | Box scores, play-by-play and tracking dashboards from stats.nba.com; the official NBA injury report (PDF); odds from 5 Massachusetts sportsbooks via The Odds API. Raw responses are kept immutable (`data/raw/**.json.gz`) and DuckDB is rebuilt from them |
+| Collect | Box scores, play-by-play and tracking dashboards from stats.nba.com (ESPN's public scoreboard, box scores and play-by-play when it does not answer); the official NBA injury report (PDF); odds from 5 Massachusetts sportsbooks via The Odds API. Raw responses are kept immutable (`data/raw/**.json.gz`) and DuckDB is rebuilt from them |
 | Lineups | Who was on the floor for every possession, rebuilt from play-by-play substitutions: 12,915 of 12,956 games (99.7%) pass the checks (each player's minutes within 5 seconds of the box score, and the score consistent) |
 | Player impact | Offensive and defensive RAPM, a ridge regression over 396K lineup stints (λ = 4000, seasons weighted ×0.7 going back three), with box-score priors fitted in the same equation |
 | Expected minutes | From the latest official injury report (5,503 reports and 573,580 rows parsed since 2019) and today's roster |
@@ -54,11 +54,20 @@ Scale: 11 seasons (2016-17 to 2026-27), 14,825 games, 6.0M play-by-play events.
 - stats.nba.com does not answer cloud runners, so the heavy work runs locally. A private
   GitHub Actions repo snapshots odds and watches pre-game injury reports, recomputing a game's
   probability from the morning's saved table when a report changes.
+- Since November 2026 stats.nba.com does not answer scripts on the laptop either (browsers still
+  get through; the run does not imitate one). When it does not answer, the morning run reads ESPN's
+  public JSON and converts it into the same schema: games matched to NBA game ids, players to NBA
+  person ids (learned from games both sources have, then by name), play-by-play rewritten in
+  stats.nba.com's conventions with the score recounted from the scoring plays. Checked on 147 games
+  both sources have: all matched, rebuilt lineups identical in 139 (the rest fail the lineup check
+  and are left out of RAPM, as before), next-day win probabilities within 0.8 points.
 
 ## Known limits
 
 - GitHub's scheduler runs far fewer of the 15-minute evening checks than it is asked to, so
   pre-game updates can be missed; the morning prediction does not depend on them.
+- Tracking data (passes, touches, catch-and-shoot, closest defender) and shot-chart zones exist only
+  on stats.nba.com: on ESPN days those fun facts keep their last stats.nba.com numbers.
 - Historical odds for the backtest come from a public dataset whose open/close timing is not
   documented. They are used for internal evaluation only and are not published.
 - Not affiliated with the NBA. Analysis and entertainment, not betting advice; every bet on

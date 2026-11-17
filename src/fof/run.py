@@ -3,7 +3,8 @@
 collect  refresh the schedule, fetch last night's box scores and play-by-play, check whether last night's
          tracking data is out; once it is (or at the noon cutoff, D5) take an odds snapshot, then fetch
          season-to-date dashboards, passes, shots and the injury report. An odds API that is down is waited
-         for the same way: until the cutoff, then the day goes on without prices (the email says so)
+         for the same way: until the cutoff, then the day goes on without prices (the email says so).
+         When stats.nba.com does not answer, the games come from ESPN instead (fof.ingest.espn)
 analyze  rebuild the DB, advance the fun fact standings, predict today's games with the v2 player model
          (never after tip-off), append to the ledgers, leave the evening watch its table (fof.watch), email
          the digest, push the private repo
@@ -24,7 +25,7 @@ from time import sleep
 from . import betting, digest, ledger, publish
 from .config import DATA, ET, ROOT, now_et, season_of
 from .facts import standings
-from .ingest import collect, injury, odds
+from .ingest import collect, espn, injury, odds
 from .ingest import nbastats as ns
 from .ingest.http import FetchError
 from .model import baseline, player
@@ -35,6 +36,7 @@ MODEL_LABELS = {"baseline-elo-context-v1": "Elo＋賽程情境", player.MODEL: "
 MODEL_LABELS_EN = {"baseline-elo-context-v1": "Elo + schedule context", player.MODEL: "Player impact + injury report"}
 SITE_URL = "https://jarvislee511.github.io/fact-or-fluke/"
 CUTOFF = time(12, 0)
+ESPN_START = time(8, 30)                 # on ESPN days: no tracking data to wait for, so not before this
 ODDS_FRESH = timedelta(hours=3)          # an older line is no price: the email would show it as this morning's
 GAME_PREFIXES = ("002", "004", "005", "006")
 STATE = DATA / "state"
@@ -71,12 +73,25 @@ def _lock() -> bool:
     return True
 
 
+def _games(sched: dict) -> list[dict]:
+    return [g for gd in sched["leagueSchedule"]["gameDates"] for g in gd["games"]
+            if g["gameId"][:3] in GAME_PREFIXES and g.get("postponedStatus") != "Y"]
+
+
 def collect_day(day: date, force: bool) -> dict:
+    """Last night's games from stats.nba.com; when it does not answer (since 2026-11-11 it leaves scripts
+    hanging), from ESPN (fof.ingest.espn)."""
+    try:
+        return _collect_nba(day, force)
+    except FetchError as e:
+        log.warning("stats.nba.com: %s -> ESPN", e)
+        return _collect_espn(day, force)
+
+
+def _collect_nba(day: date, force: bool) -> dict:
     season, yday = season_of(day), day - timedelta(days=1)
-    sched = collect.schedule(season, day)
-    games = [g for gd in sched["leagueSchedule"]["gameDates"] for g in gd["games"]
-             if g["gameDateEst"][:10] == yday.isoformat() and g["gameId"][:3] in GAME_PREFIXES
-             and g.get("postponedStatus") != "Y"]
+    sched = collect.schedule(season, day, quick=True)
+    games = [g for g in _games(sched) if g["gameDateEst"][:10] == yday.isoformat()]
     finals = [g for g in games if g["gameStatus"] == 3]
     played: set[int] = set()
     for g in finals:
@@ -109,17 +124,61 @@ def collect_day(day: date, force: bool) -> dict:
                 log.warning("passes %s: %s", pid, e)
     if regular:
         collect.shots(season, "Regular Season", yday, yday, refresh=True)
-    try:
-        stamp = injury.latest_stamps(season)[-1]
-        raw.save(injury.parse(injury.download(stamp)), "injury", day.isoformat(), stamp)
-    except (FetchError, IndexError) as e:
-        log.warning("injury report: %s", e)
+    _injury_report(day, season)
     try:
         collect.player_index(season, day)       # today's rosters, for the expected minutes
     except FetchError as e:
         log.warning("player index: %s", e)
     _pull()
     return {**info, "go": True, "odds": priced}
+
+
+def _collect_espn(day: date, force: bool) -> dict:
+    """The same morning from ESPN: the last schedule archived, kept current from ESPN's scoreboards, and box
+    scores and play-by-play for every finished game the archive lacks (yesterday's, and those of any day
+    stats.nba.com was down). ESPN has last night's games by 06:00 but no tracking data to wait for, so the run
+    waits until ESPN_START, about when the stats.nba.com mornings went (and the morning injury report is out).
+    Today's rosters come from ESPN's team pages; tracking dashboards, passes and shot zones keep their last
+    stats.nba.com snapshot."""
+    season, yday = season_of(day), day - timedelta(days=1)
+    base = raw.files("schedule", season)[-1]
+    sched = espn.schedule(raw.read(base), date.fromisoformat(base.name.split(".")[0]), day)
+    raw.save(sched, "schedule", season, day.isoformat())
+    ids = espn.Ids(espn.player_index())
+    try:
+        for g in _games(sched):
+            if (g["gameStatus"] == 3 and g["gameDateEst"][:10] <= yday.isoformat() and g.get("espnId")
+                    and not raw.exists("games", season, "box", g["gameId"])):
+                espn.game(g, season, ids)
+    finally:
+        ids.save()
+    games = [g for g in _games(sched) if g["gameDateEst"][:10] == yday.isoformat()]
+    finals = [g for g in games if g["gameStatus"] == 3]
+    complete = len(finals) == len(games)
+    info = {"source": "espn", "finals": len(finals), "scheduled": len(games), "complete": complete,
+            "partial": not complete}
+    if (not complete or now_et().time() < ESPN_START) and not force and now_et().time() < CUTOFF:
+        return {**info, "go": False}
+    priced = _odds_snapshot(day)
+    if not priced and not force and now_et().time() < CUTOFF:
+        return {**info, "go": False, "odds": False}
+    _injury_report(day, season)
+    teams = {s["teamTricode"]: s["teamId"] for g in _games(sched) for s in (g["homeTeam"], g["awayTeam"])
+             if s.get("teamTricode")}
+    try:                                    # today's rosters, for the expected minutes
+        raw.save(espn.rosters(ids, teams), "players", season, day.isoformat())
+    except (FetchError, KeyError) as e:
+        log.warning("ESPN rosters: %s", e)
+    _pull()
+    return {**info, "go": True, "odds": priced}
+
+
+def _injury_report(day: date, season: str) -> None:
+    try:
+        stamp = injury.latest_stamps(season)[-1]
+        raw.save(injury.parse(injury.download(stamp)), "injury", day.isoformat(), stamp)
+    except (FetchError, IndexError) as e:
+        log.warning("injury report: %s", e)
 
 
 def _odds_snapshot(day: date) -> bool:
@@ -261,7 +320,7 @@ def scorecard(con, day: date) -> dict:
     return {**card(player.MODEL), "previous": [card(m) for m in earlier]}
 
 
-def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
+def analyze(day: date, partial: bool, send: bool, push: bool = True, source: str = "nba") -> dict:
     season = season_of(day)
     counts = build.build({season})       # past seasons never change; scripts/build_db.py reloads everything
     con = db.connect()
@@ -282,7 +341,7 @@ def analyze(day: date, partial: bool, send: bool, push: bool = True) -> dict:
         for p in made if p.get("pick")])
     preds = ledger.for_day(day, player.MODEL)                         # the email shows what the ledger holds
     card = scorecard(con, day)
-    publish.publish(con, day, season, card, night, partial)
+    publish.publish(con, day, season, card, night, partial, source)
     con.close()
     subject, text, html_doc = digest.compose(day, preds, SITE_URL)
     sent = email.send(subject, text, html_doc) if send else None
@@ -327,9 +386,10 @@ def main(argv: list[str] | None = None) -> int:
             log.info("collect: %s", info)
             if not info["go"]:
                 return 0
-            st.update(collected=True, partial=info["partial"])
+            st.update(collected=True, partial=info["partial"], source=info.get("source", "nba"))
             _save_state(day, st)
-        result = analyze(day, st.get("partial", False), send=not args.no_email, push=not args.dry)
+        result = analyze(day, st.get("partial", False), send=not args.no_email, push=not args.dry,
+                         source=st.get("source", "nba"))
         st.update(emailed=not args.no_email, result=result, finished=now_et().isoformat())
         _save_state(day, st)
         log.info("done: %s", result)

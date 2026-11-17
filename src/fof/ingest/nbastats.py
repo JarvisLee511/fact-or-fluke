@@ -15,8 +15,12 @@ STATS_HEADERS = {
 
 
 def get_json(endpoint: str, **params) -> dict:
+    return fetch_json(endpoint, params)
+
+
+def fetch_json(endpoint: str, params: dict, timeout: float | None = None, retries: int | None = None) -> dict:
     url = f"https://stats.nba.com/stats/{endpoint}?" + urlencode(params)
-    return json.loads(fetch(url, STATS_HEADERS))
+    return json.loads(fetch(url, STATS_HEADERS, timeout=timeout, retries=retries))
 
 
 def result_sets(payload: dict) -> dict[str, list[dict]]:

@@ -456,9 +456,14 @@ function applyStatic() {
 
 function colophon() {
   const updated = new Date(DATA.meta.generated_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: ET });
+  // ESPN days: stats.nba.com did not answer the morning run, so last night's games came from ESPN and the
+  // tracking-based fun facts stand as of the last stats.nba.com snapshot
+  const espn = DATA.meta.source === "espn";
+  const asOf = DATA.meta.tracking_as_of ? DATA.meta.tracking_as_of.slice(5, 10).replace("-", "/") : "";
+  const waiting = DATA.meta.partial && !espn;
   $("#colophon").textContent = tr(
-    `資料：stats.nba.com · NBA 官方傷兵報告 · The Odds API（麻州 5 家）· 更新於 ${updated} ET${DATA.meta.partial ? " · 昨晚的追蹤數據還沒出來，fun fact 用前一天的累計" : ""} · 這是分析和娛樂，不是投資建議。`,
-    `Data: stats.nba.com · official NBA injury reports · The Odds API (5 Massachusetts sportsbooks) · updated ${updated} ET${DATA.meta.partial ? " · last night's tracking data is not out yet, so fun facts use the totals through the night before" : ""} · Analysis and entertainment, not betting advice.`);
+    `資料：${espn ? "ESPN（stats.nba.com 暫停開放程式讀取）" : "stats.nba.com "}· NBA 官方傷兵報告 · The Odds API（麻州 5 家）· 更新於 ${updated} ET${waiting ? " · 昨晚的追蹤數據還沒出來，fun fact 用前一天的累計" : ""}${espn && asOf ? ` · 追蹤數據類 fun fact 停在 ${asOf}` : ""} · 這是分析和娛樂，不是投資建議。`,
+    `Data: ${espn ? "ESPN (stats.nba.com is closed to scripts for now)" : "stats.nba.com"} · official NBA injury reports · The Odds API (5 Massachusetts sportsbooks) · updated ${updated} ET${waiting ? " · last night's tracking data is not out yet, so fun facts use the totals through the night before" : ""}${espn && asOf ? ` · tracking-based fun facts are as of ${asOf}` : ""} · Analysis and entertainment, not betting advice.`);
 }
 
 function chooseLang(lang) {

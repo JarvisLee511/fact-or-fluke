@@ -111,14 +111,24 @@ class Context:
         self.fg3a = {r[0]: r[3] for r in rows}
         self.role = role_vectors(con, season)
 
+    def dash_as_of(self, measure: str):
+        """The morning of the newest tracking snapshot (it covers the games before that day)."""
+        return self.con.execute("select max(as_of) from dash where season = ? and measure = ?",
+                                [self.season, measure]).fetchone()[0]
+
     def dash(self, measure: str) -> list[dict]:
-        as_of = self.con.execute("select max(as_of) from dash where season = ? and measure = ?",
-                                 [self.season, measure]).fetchone()[0]
+        as_of = self.dash_as_of(measure)
         if as_of is None:
             return []
         return [json.loads(d) for (d,) in self.con.execute(
             "select data from dash where season = ? and measure = ? and as_of = ?",
             [self.season, measure, as_of]).fetchall()]
+
+    def fg3a_before(self, day) -> dict[int, int]:
+        """Each player's regular-season threes tried in games before `day`."""
+        return dict(self.con.execute(f"""
+            select pg.player_id, sum(pg.fg3a) from player_games pg join games g using (game_id)
+            where {REG} and g.game_date < ? group by 1""", [self.season, day]).fetchall())
 
     def who(self, pid: int, fallback: str = "") -> tuple[str, str]:
         return self.name.get(pid, fallback), self.team.get(pid, "")
@@ -220,7 +230,11 @@ def shooting_style(ctx: Context) -> list[dict]:
     cs = {r["PLAYER_ID"]: r for r in ctx.dash("CatchShoot")}
     pu = {r["PLAYER_ID"]: r for r in ctx.dash("PullUpShot")}
     out = []
-    share = [(pid, r.get("CATCH_SHOOT_FG3A") or 0, ctx.fg3a.get(pid) or 0) for pid, r in cs.items()]
+    # the snapshot's catch-and-shoot threes over the threes tried by the snapshot's day: when the box scores run
+    # further (tracking data late, or stats.nba.com down and the games from ESPN), the share would shrink for all
+    as_of = ctx.dash_as_of("CatchShoot")
+    fg3a = ctx.fg3a_before(as_of) if as_of else ctx.fg3a
+    share = [(pid, r.get("CATCH_SHOOT_FG3A") or 0, fg3a.get(pid) or 0) for pid, r in cs.items()]
     share = [(pid, min(k, n), n) for pid, k, n in share if n]
     base = peer_baseline(ctx, share)
     for pid, k, n in share:

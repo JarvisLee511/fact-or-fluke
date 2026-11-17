@@ -91,7 +91,7 @@ def test_an_odds_api_that_is_down_is_waited_for_until_the_noon_cutoff(tmp_path, 
     monkeypatch.setattr(run, "now_et", lambda: now[0])
     monkeypatch.setenv("ODDS_API_KEY", "secret")
     monkeypatch.setattr(run.odds, "snapshot", down)
-    monkeypatch.setattr(run.collect, "schedule", lambda season, day: {"leagueSchedule": {"gameDates": []}})
+    monkeypatch.setattr(run.collect, "schedule", lambda season, day, **kw: {"leagueSchedule": {"gameDates": []}})
     monkeypatch.setattr(run.collect, "dashboards", lambda *args, **kwargs: slow.append("dashboards"))
     monkeypatch.setattr(run.collect, "player_index", lambda *args, **kwargs: None)
     monkeypatch.setattr(run.injury, "latest_stamps", lambda season: [])
@@ -100,6 +100,49 @@ def test_an_odds_api_that_is_down_is_waited_for_until_the_noon_cutoff(tmp_path, 
     now[0] = datetime(2026, 11, 7, 12, 0, tzinfo=ET)
     info = run.collect_day(date(2026, 11, 7), force=False)
     assert info["go"] is True and info["odds"] is False and slow == ["dashboards"]
+
+
+def test_a_stats_nba_that_does_not_answer_sends_the_morning_to_espn(tmp_path, monkeypatch):
+    """11/11-11/16: stats.nba.com left every request hanging; each morning failed at its first fetch."""
+    now = [datetime(2026, 11, 17, 6, 0, tzinfo=ET)]
+
+    def hangs(*args, **kwargs):
+        raise FetchError("https://stats.nba.com/stats/scheduleleaguev2", None, b"The read operation timed out")
+
+    def game(gid, day, status, espn_id):
+        return {"gameId": gid, "gameDateEst": f"{day}T00:00:00Z", "gameStatus": status, "espnId": espn_id,
+                "postponedStatus": "N", "homeTeam": {"teamTricode": "BOS", "teamId": 1610612738},
+                "awayTeam": {"teamTricode": "MIA", "teamId": 1610612748}}
+
+    converted = []
+
+    def convert(g, season, ids):
+        converted.append(g["gameId"])
+        run.raw.save({}, "games", season, "box", g["gameId"])
+
+    monkeypatch.setattr(run, "ROOT", tmp_path)                                 # no private repo: no git
+    monkeypatch.setattr(run, "now_et", lambda: now[0])
+    monkeypatch.delenv("ODDS_API_KEY", raising=False)
+    monkeypatch.setattr(run.raw, "RAW", tmp_path / "raw")
+    monkeypatch.setattr(run.collect, "schedule", hangs)
+    run.raw.save({"leagueSchedule": {"gameDates": [{"games": [
+        game("0022600239", "2026-11-15", 3, "11"), game("0022600240", "2026-11-16", 3, "12"),
+        game("0022600241", "2026-11-17", 1, "13")]}]}}, "schedule", "2026-27", "2026-11-10")
+    monkeypatch.setattr(run.espn, "schedule", lambda base, base_day, day: {**base, "source": "espn"})
+    monkeypatch.setattr(run.espn, "game", convert)
+    monkeypatch.setattr(run.espn, "player_index", lambda: [])
+    monkeypatch.setattr(run.espn, "rosters", lambda ids, teams: {"source": "espn", "teams": sorted(teams)})
+    monkeypatch.setattr(run.injury, "latest_stamps", lambda season: [])
+    info = run.collect_day(date(2026, 11, 17), force=False)
+    assert info["source"] == "espn" and info["complete"] and info["go"] is False      # ready, but before 08:30
+    assert converted == ["0022600239", "0022600240"]               # every finished game the archive lacked
+    assert run.raw.load("schedule", "2026-27", "2026-11-17")["source"] == "espn"
+    assert not run.raw.exists("players", "2026-27", "2026-11-17")
+    now[0] = datetime(2026, 11, 17, 8, 30, tzinfo=ET)
+    info = run.collect_day(date(2026, 11, 17), force=False)
+    assert info["go"] is True and info["finals"] == info["scheduled"] == 1
+    assert converted == ["0022600239", "0022600240"]               # nothing converted twice
+    assert run.raw.load("players", "2026-27", "2026-11-17")["teams"] == ["BOS", "MIA"]   # today's rosters
 
 
 def _union_attrs(repo):

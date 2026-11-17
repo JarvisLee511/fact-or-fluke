@@ -35,9 +35,11 @@ def _cached(parts: tuple[str, ...], fetch, refresh: bool = False):
     return payload
 
 
-def schedule(season: str, as_of: date, refresh: bool = True) -> dict:
+def schedule(season: str, as_of: date, refresh: bool = True, quick: bool = False) -> dict:
+    """quick: the morning's first question to stats.nba.com, so one that does not answer costs ~35 s, not ~2.5 min."""
+    limits = dict(timeout=15, retries=1) if quick else {}
     return _cached(("schedule", season, as_of.isoformat()),
-                   lambda: ns.get_json("scheduleleaguev2", LeagueID="00", Season=season), refresh)
+                   lambda: ns.fetch_json("scheduleleaguev2", dict(LeagueID="00", Season=season), **limits), refresh)
 
 
 def game(kind: str, game_id: str, season: str) -> dict:
